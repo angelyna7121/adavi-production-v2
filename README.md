@@ -1,6 +1,6 @@
-# Adavi Net Worth POC
+# Adavi Net Worth
 
-A polished, interactive proof of concept for the adavi.ai Net Worth Statement workflow with local document parsing.
+A production-ready native Next.js application for the adavi.ai Net Worth Statement workflow with local document parsing.
 
 ## Included workflow
 
@@ -15,7 +15,7 @@ Missing previous-period values remain unavailable and display as **N/A**. The ap
 Requirements: Node.js 22.13 or newer.
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -40,8 +40,17 @@ Primary Investor,Mortgages,National Bank,Home mortgage,320000,,liability
 
 The description and current-period value are required. Type may be `asset` or `liability`.
 
+## Quality checks
+
+```bash
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
+
 ## Scope
 
-This is a self-contained front-end POC. PDF text extraction, PDF page rendering, OCR and spreadsheet parsing occur locally in the browser; statement files are not sent to a server. Authentication, database persistence, payments and production integrations remain outside this standalone demo.
+This is a self-contained front end. PDF text extraction, PDF page rendering, OCR and spreadsheet parsing occur locally in the browser; statement files are not sent to a server. Authentication, database persistence, payments and production integrations remain outside this application.
 
 The parser accepts up to 10 MB per file and reads up to 25 PDF pages. OCR, PDF.js and English language assets are bundled locally, so the application does not download OCR dependencies from a CDN at runtime.
