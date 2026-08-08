@@ -173,7 +173,7 @@ async function parsePdf(file: File, progress: Progress) {
       progress(`Reading PDF page ${pageNumber} of ${maxPages}…`);
       const page = await pdfDocument.getPage(pageNumber);
       const content = await page.getTextContent();
-      const embeddedText = content.items.map((item) => "str" in item ? item.str : "").join(" ").trim();
+      const embeddedText = content.items.map((item) => "str" in item ? `${item.str}${"hasEOL" in item && item.hasEOL ? "\n" : " "}` : "").join("").trim();
       let pageText = embeddedText;
       if (embeddedText.length < 40) {
         const viewport = page.getViewport({ scale: 2 });

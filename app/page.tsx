@@ -32,6 +32,7 @@ export default function Home() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const included = useMemo(() => rows.filter((row) => row.include && row.current !== ""), [rows]);
+  const hasInvalidIncludedRows = rows.some((row) => row.include && (!row.description.trim() || row.current === ""));
   const assets = included.filter((row) => row.kind === "Asset").reduce((sum, row) => sum + Number(row.current), 0);
   const liabilities = included.filter((row) => row.kind === "Liability").reduce((sum, row) => sum + Number(row.current), 0);
   const netWorth = assets - liabilities;
@@ -154,8 +155,8 @@ export default function Home() {
                   <td><input value={row.investor} onChange={(e) => update(row.id, { investor: e.target.value })} /></td>
                   <td><select value={row.category} onChange={(e) => update(row.id, { category: e.target.value })}>{categories.map((c) => <option key={c}>{c}</option>)}</select></td>
                   <td><input value={row.institution} placeholder="Institution / account" onChange={(e) => update(row.id, { institution: e.target.value })} /></td>
-                  <td><input className={!row.description ? "invalid" : ""} value={row.description} placeholder="Required" onChange={(e) => update(row.id, { description: e.target.value })} /></td>
-                  <td><input type="number" className={row.current === "" ? "invalid" : ""} value={row.current} onChange={(e) => update(row.id, { current: e.target.value === "" ? "" : Number(e.target.value) })} /></td>
+                  <td><input required aria-invalid={!row.description.trim()} className={!row.description.trim() ? "invalid" : ""} value={row.description} placeholder="Required" onChange={(e) => update(row.id, { description: e.target.value })} /></td>
+                  <td><input required aria-invalid={row.current === ""} type="number" className={row.current === "" ? "invalid" : ""} value={row.current} onChange={(e) => update(row.id, { current: e.target.value === "" ? "" : Number(e.target.value) })} /></td>
                   <td><input type="number" value={row.previous ?? ""} placeholder="N/A" onChange={(e) => update(row.id, { previous: e.target.value === "" ? null : Number(e.target.value) })} /></td>
                   <td><select value={row.kind} onChange={(e) => update(row.id, { kind: e.target.value as Kind })}><option>Asset</option><option>Liability</option></select></td>
                   <td className="sourceCell">{row.source}</td>
@@ -163,7 +164,7 @@ export default function Home() {
                 </tr>)}</tbody>
               </table>
             </div>
-            <div className="reviewActions"><button className="secondary" onClick={() => setStep("upload")}>← Back</button><button className="primary" disabled={!included.length || included.some((r) => !r.description || r.current === "")} onClick={() => setStep("report")}>✓ Confirm & Generate Statement</button></div>
+            <div className="reviewActions"><button className="secondary" onClick={() => setStep("upload")}>← Back</button><button className="primary" disabled={!included.length || hasInvalidIncludedRows} onClick={() => setStep("report")}>✓ Confirm & Generate Statement</button></div>
           </section>
         )}
 
