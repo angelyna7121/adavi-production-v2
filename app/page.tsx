@@ -2,14 +2,16 @@
 
 import { useMemo, useRef, useState } from "react";
 import { parseDocument, type Kind, type ParsedRow as Row } from "./lib/documentParser";
+import { assignInvestor, confirmedDetailRows, createReportCsv, hasUnnamedIncludedRows } from "./lib/reportData";
 
 type Step = "upload" | "review" | "report";
+type Investor = { id: string; name: string; files: string[] };
 
 const sampleRows: Row[] = [
-  { id: "1", include: true, investor: "Primary Investor", category: "Cash & Bank Accounts", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "sample-bank.csv" },
-  { id: "2", include: true, investor: "Primary Investor", category: "Investments", institution: "Sample Brokerage", description: "Non-registered Portfolio", current: 215000, previous: 202000, kind: "Asset", source: "sample-portfolio.csv" },
-  { id: "3", include: true, investor: "Primary Investor", category: "Real Estate", institution: "Principal Residence", description: "Estimated Fair Market Value", current: 780000, previous: 750000, kind: "Asset", source: "sample-property.csv" },
-  { id: "4", include: true, investor: "Primary Investor", category: "Mortgages", institution: "Sample Lender", description: "Residential Mortgage", current: 325000, previous: null, kind: "Liability", source: "sample-mortgage.csv" },
+  { id: "1", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Cash & Bank Accounts", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "alex-bank.csv" },
+  { id: "2", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Investments", institution: "Sample Brokerage", description: "Non-registered Portfolio", current: 215000, previous: 202000, kind: "Asset", source: "alex-portfolio.csv" },
+  { id: "3", include: true, investorId: "sample-b", investor: "Jordan Morgan", category: "Real Estate", institution: "Principal Residence", description: "Estimated Fair Market Value", current: 780000, previous: 750000, kind: "Asset", source: "jordan-property.csv" },
+  { id: "4", include: true, investorId: "sample-b", investor: "Jordan Morgan", category: "Mortgages", institution: "Sample Lender", description: "Residential Mortgage", current: 325000, previous: null, kind: "Liability", source: "jordan-mortgage.csv" },
 ];
 
 const categories = ["Cash & Bank Accounts", "Investments", "Registered Accounts", "Real Estate", "Business Interests", "Vehicles", "Mortgages", "Credit Cards", "Loans", "Taxes Owing", "Other"];
@@ -25,14 +27,17 @@ export default function Home() {
   const [rows, setRows] = useState<Row[]>([]);
   const [groupName, setGroupName] = useState("The Sample Family");
   const [statementDate, setStatementDate] = useState(new Date().toISOString().slice(0, 10));
-  const [files, setFiles] = useState<string[]>([]);
+  const [investorList, setInvestorList] = useState<Investor[]>([{ id: crypto.randomUUID(), name: "", files: [] }]);
+  const [activeInvestorId, setActiveInvestorId] = useState(() => investorList[0].id);
   const [error, setError] = useState("");
   const [processing, setProcessing] = useState("");
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const included = useMemo(() => rows.filter((row) => row.include && row.current !== ""), [rows]);
-  const hasInvalidIncludedRows = rows.some((row) => row.include && (!row.description.trim() || row.current === ""));
+  const included = useMemo(() => confirmedDetailRows(rows), [rows]);
+  const hasInvalidIncludedRows = rows.some((row) => row.include && (!row.description.trim() || row.current === "")) || hasUnnamedIncludedRows(rows);
+  const files = investorList.flatMap((investor) => investor.files);
+  const activeInvestor = investorList.find((investor) => investor.id === activeInvestorId);
   const assets = included.filter((row) => row.kind === "Asset").reduce((sum, row) => sum + Number(row.current), 0);
   const liabilities = included.filter((row) => row.kind === "Liability").reduce((sum, row) => sum + Number(row.current), 0);
   const netWorth = assets - liabilities;
@@ -44,7 +49,9 @@ export default function Home() {
 
   async function acceptFiles(list: FileList | File[]) {
     const selected = Array.from(list);
+    const investorName = activeInvestor?.name.trim() ?? "";
     if (!selected.length) return;
+    if (!investorName) { setError("Enter an investor name before uploading statements."); return; }
     const parsed: Row[] = [];
     const errors: string[] = [];
     setError("");
@@ -53,7 +60,8 @@ export default function Home() {
       const file = selected[index];
       try {
         setProcessing(`Processing ${file.name} (${index + 1} of ${selected.length})…`);
-        parsed.push(...await parseDocument(file, setProcessing));
+        const extracted = await parseDocument(file, setProcessing);
+        parsed.push(...assignInvestor(extracted, activeInvestorId, investorName));
       } catch (reason) {
         errors.push(reason instanceof Error ? reason.message : `Could not process ${file.name}.`);
       }
@@ -64,36 +72,46 @@ export default function Home() {
       return;
     }
     setError(errors.length ? `Some files could not be read: ${errors.join(" ")}` : "");
-    setRows(parsed);
-    setFiles(selected.map((file) => file.name));
-    setStep("review");
+    setRows((current) => [...current, ...parsed]);
+    setInvestorList((current) => current.map((investor) => investor.id === activeInvestorId ? { ...investor, files: [...investor.files, ...selected.map((file) => file.name)] } : investor));
   }
 
   function loadSample() {
     setRows(sampleRows);
-    setFiles(["sample-bank.csv", "sample-portfolio.csv", "sample-property.csv"]);
+    setInvestorList([{ id: "sample-a", name: "Alex Morgan", files: ["alex-bank.csv", "alex-portfolio.csv"] }, { id: "sample-b", name: "Jordan Morgan", files: ["jordan-property.csv", "jordan-mortgage.csv"] }]);
+    setActiveInvestorId("sample-a");
     setError("");
     setStep("review");
   }
 
   function addRow() {
-    setRows((current) => [...current, { id: crypto.randomUUID(), include: true, investor: "Primary Investor", category: "Other", institution: "", description: "", current: "", previous: null, kind: "Asset", source: "Manual entry" }]);
+    const investor = investorList.find((item) => item.name.trim());
+    setRows((current) => [...current, { id: crypto.randomUUID(), include: true, investor: investor?.name.trim() ?? "", investorId: investor?.id, category: "Other", institution: "", description: "", current: "", previous: null, kind: "Asset", source: "Manual entry" }]);
   }
 
   function update(id: string, patch: Partial<Row>) {
     setRows((current) => current.map((row) => row.id === id ? { ...row, ...patch } : row));
   }
 
+  function renameInvestor(id: string, name: string) {
+    setInvestorList((current) => current.map((investor) => investor.id === id ? { ...investor, name } : investor));
+    setRows((current) => current.map((row) => row.investorId === id ? { ...row, investor: name } : row));
+  }
+
+  function addInvestor() {
+    const investor = { id: crypto.randomUUID(), name: "", files: [] };
+    setInvestorList((current) => [...current, investor]);
+    setActiveInvestorId(investor.id);
+  }
+
   function downloadCsv() {
-    const header = "Investor,Category,Institution,Description,Current Value,Previous Value,Type,Source";
-    const body = included.map((r) => [r.investor, r.category, r.institution, r.description, r.current, r.previous ?? "N/A", r.kind, r.source].map((v) => `"${String(v).replaceAll('"', '""')}"`).join(","));
-    const blob = new Blob([[header, ...body].join("\n")], { type: "text/csv" });
+    const blob = new Blob([createReportCsv(rows)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `adavi-net-worth-${statementDate}.csv`;
     anchor.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   return (
@@ -122,10 +140,17 @@ export default function Home() {
         {step === "upload" && (
           <section className="workspace uploadGrid">
             <div className={`dropzone ${dragging ? "dragging" : ""}`} onDragOver={(e) => { e.preventDefault(); setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={(e) => { e.preventDefault(); setDragging(false); acceptFiles(e.dataTransfer.files); }}>
+              <div className="investorList">
+                {investorList.map((investor) => <div className={`investorCard ${investor.id === activeInvestorId ? "selected" : ""}`} key={investor.id} onClick={() => setActiveInvestorId(investor.id)}>
+                  <label>Investor name<input aria-label="Investor name" value={investor.name} placeholder="Required before upload" onClick={(event) => event.stopPropagation()} onChange={(event) => renameInvestor(investor.id, event.target.value)} /></label>
+                  <small>{investor.files.length ? investor.files.join(", ") : "No statements assigned yet"}</small>
+                </div>)}
+              </div>
+              <button className="secondary addInvestor" onClick={addInvestor}>＋ Add another investor</button>
               <div className="uploadIcon">⇧</div>
-              <h2>Drop statements here or browse</h2>
+              <h2>Upload {activeInvestor?.name.trim() ? `${activeInvestor.name.trim()}’s` : "this investor’s"} statements</h2>
               <p>PDF, JPG, PNG, CSV, XLSX, OCR scans and Adobe-exported statements up to 10 MB each.</p>
-              <div className="buttonRow"><button className="primary" disabled={Boolean(processing)} onClick={() => fileRef.current?.click()}>{processing || "Browse files"}</button><button className="secondary" disabled={Boolean(processing)} onClick={loadSample}>Use sample statements</button></div>
+              <div className="buttonRow"><button className="primary" disabled={Boolean(processing) || !activeInvestor?.name.trim()} onClick={() => fileRef.current?.click()}>{processing || "Browse files"}</button><button className="secondary" disabled={Boolean(processing)} onClick={loadSample}>Use sample statements</button>{rows.length > 0 && <button className="primary" disabled={investorList.some((investor) => investor.files.length > 0 && !investor.name.trim())} onClick={() => setStep("review")}>Review & Reconcile →</button>}</div>
               <input ref={fileRef} hidden type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.csv,.xlsx,.xls" onChange={(e) => { const snapshot = e.target.files ? Array.from(e.target.files) : []; e.currentTarget.value = ""; if (snapshot.length) acceptFiles(snapshot); }} />
               {error && <div className="errorToast"><strong>We couldn’t process this statement</strong><span>{error}</span></div>}
             </div>
@@ -152,7 +177,7 @@ export default function Home() {
               <table className="reviewTable"><thead><tr><th>Include</th><th>Investor</th><th>Category</th><th>Institution / Account</th><th>Description</th><th>Current Value</th><th>Previous Value</th><th>Asset / Liability</th><th>Source</th><th></th></tr></thead>
                 <tbody>{rows.map((row) => <tr key={row.id}>
                   <td><input type="checkbox" checked={row.include} onChange={(e) => update(row.id, { include: e.target.checked })} /></td>
-                  <td><input value={row.investor} onChange={(e) => update(row.id, { investor: e.target.value })} /></td>
+                  <td><select aria-label="Assigned investor" value={row.investor} className={!row.investor.trim() ? "invalid" : ""} onChange={(e) => { const selected = investorList.find((investor) => investor.name === e.target.value); update(row.id, { investor: e.target.value, investorId: selected?.id }); }}><option value="">Select investor</option>{investorList.filter((item) => item.name.trim()).map((item) => <option key={item.id} value={item.name.trim()}>{item.name.trim()}</option>)}</select></td>
                   <td><select value={row.category} onChange={(e) => update(row.id, { category: e.target.value })}>{categories.map((c) => <option key={c}>{c}</option>)}</select></td>
                   <td><input value={row.institution} placeholder="Institution / account" onChange={(e) => update(row.id, { institution: e.target.value })} /></td>
                   <td><input required aria-invalid={!row.description.trim()} className={!row.description.trim() ? "invalid" : ""} value={row.description} placeholder="Required" onChange={(e) => update(row.id, { description: e.target.value })} /></td>
