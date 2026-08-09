@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Third-party browser runtimes are copied verbatim and served as static assets.
+    "public/ocr/**",
+    "public/pdf/**",
   ]),
 ]);
 
