@@ -4,6 +4,7 @@ export type ParsedRow = {
   id: string;
   include: boolean;
   investor: string;
+  investorId?: string;
   category: string;
   institution: string;
   description: string;
@@ -80,7 +81,7 @@ export function parseFinancialText(text: string, source: string): ParsedRow[] {
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push({
-      id: id(), include: true, investor: "Primary Investor",
+      id: id(), include: true, investor: "",
       category: inferCategory(description, kind), institution,
       description, current: normalizedCurrent, previous: normalizedPrevious,
       kind, source,
@@ -115,7 +116,7 @@ function parseTabularRows(data: unknown[][], source: string): ParsedRow[] {
     const prior = previousIndex >= 0 ? parseAmount(String(values[previousIndex] ?? "")) : null;
     return [{
       id: id(), include: true,
-      investor: String(values[investorIndex] ?? "Primary Investor").trim() || "Primary Investor",
+      investor: investorIndex >= 0 ? String(values[investorIndex] ?? "").trim() : "",
       category: String(values[categoryIndex] ?? "").trim() || inferCategory(description, kind),
       institution: String(values[institutionIndex] ?? "").trim(),
       description, current: Math.abs(current), previous: prior === null ? null : Math.abs(prior),
