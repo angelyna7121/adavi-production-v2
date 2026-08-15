@@ -37,6 +37,37 @@ Loan 25,000.00`, "position.pdf");
   assert.deepEqual(rows.map((r) => r.category), ["Mortgage Investments / Mortgage Receivables", "Loans Receivable", "Mortgages Payable", "Loans Payable"]);
 });
 
+test("inherits institutions above account-type headings", () => {
+  const rows = parseFinancialText(`ASSETS
+CIBC Bank
+Bank Accounts
+Operating account 41,474.30
+Am-Stat
+Real Estate
+Sunset Park 443,808.40
+Jorlee Holdings Limited
+Loans Receivable
+Short Term Loan 1,450,000.00
+Sky Mortgage Corporation
+Mortgage Investments
+136 Markland, Markham ON 350,000.00
+27 Harwood ON 250,000.00
+Bruce St, Welland ON 400,000.00
+LIABILITIES
+Zohar.ai Inc.
+Loans Payable
+Loan 224,000.00`, "position.pdf");
+  assert.deepEqual(rows.map((row) => [row.holder, row.accountName, row.description]), [
+    ["CIBC Bank", "Bank Accounts", "Operating account"],
+    ["Am-Stat", "Real Estate", "Sunset Park"],
+    ["Jorlee Holdings Limited", "Loans Receivable", "Short Term Loan"],
+    ["Sky Mortgage Corporation", "Mortgage Investments", "136 Markland, Markham ON"],
+    ["Sky Mortgage Corporation", "Mortgage Investments", "27 Harwood ON"],
+    ["Sky Mortgage Corporation", "Mortgage Investments", "Bruce St, Welland ON"],
+    ["Zohar.ai Inc.", "Loans Payable", "Loan"],
+  ]);
+});
+
 test("splits cash and investments columns without their combined total", () => {
   const rows = parseTabularRows([
     ["Section", "Holder", "Account Name", "Description", "Cash", "Investments", "Total Cash & Investments"],

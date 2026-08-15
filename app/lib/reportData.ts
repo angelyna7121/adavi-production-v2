@@ -7,6 +7,21 @@ export function hasUnnamedIncludedRows(rows: ParsedRow[]) { return rows.some((ro
 export function isSummaryRow(row: ParsedRow) { return /^\s*(?:grand\s+total|sub\s*total|subtotal|total)(?:\s|:|-|$)/i.test(row.description); }
 /** The public report model contains confirmed numeric leaf accounts only; source totals are never public rows. */
 export function confirmedDetailRows(rows: ParsedRow[]) { return rows.filter((row)=>row.include&&row.current!==""&&!isSummaryRow(row)); }
+export type AssetMixEntry = { category: string; total: number; percentage: number };
+export function normalizeCategory(category: string) {
+  const normalized = category.trim().toLowerCase().replace(/\s+/g, " ");
+  if (/^mortgage (?:investment|investments|receivable|receivables)(?:\s*\/\s*mortgage (?:investment|investments|receivable|receivables))?$/.test(normalized)) return "Mortgage Investments / Mortgage Receivables";
+  return category.trim();
+}
+export function calculateAssetMix(rows: ParsedRow[]): AssetMixEntry[] {
+  const totals = new Map<string, number>();
+  for (const row of confirmedDetailRows(rows).filter((item) => item.kind === "Asset")) {
+    const category = normalizeCategory(row.category);
+    totals.set(category, (totals.get(category) ?? 0) + Number(row.current));
+  }
+  const totalAssets = [...totals.values()].reduce((sum, value) => sum + value, 0);
+  return [...totals].map(([category, total]) => ({ category, total, percentage: totalAssets ? total / totalAssets * 100 : 0 }));
+}
 export type ReportGroup = { investor:string; sections:Array<{kind:Kind;categories:Array<{category:string;total:number;holders:Array<{holder:string;total:number;rows:ParsedRow[]}>}>}> };
 export function groupReportRows(rows: ParsedRow[]): ReportGroup[] {
   const leaves = confirmedDetailRows(rows);

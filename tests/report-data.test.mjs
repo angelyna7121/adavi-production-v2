@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 const { parseFinancialText } = await import("../app/lib/documentParser.ts");
-const { CSV_HEADERS, assignInvestor, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows, reassignInvestor } = await import("../app/lib/reportData.ts");
+const { CSV_HEADERS, assignInvestor, calculateAssetMix, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows, reassignInvestor } = await import("../app/lib/reportData.ts");
 
 const statement = `ASSETS
 CIBC Bank
@@ -44,6 +44,19 @@ test("source totals are always excluded rather than used as fallback leaves", ()
 test("builds investor, section, category, holder, and account grouping", () => {
   const groups=groupReportRows(rows); assert.equal(groups[0].investor,"Ari Family"); assert.deepEqual(groups[0].sections.map((s)=>s.kind),["Asset","Liability"]);
   const mortgage=groups[0].sections[0].categories.find((c)=>c.category==="Mortgage Investments / Mortgage Receivables"); assert.equal(mortgage.holders[0].holder,"Sky Mortgage Corporation"); assert.equal(mortgage.holders[0].rows.length,3); assert.equal(mortgage.total,1000000);
+});
+
+test("combines mortgage category variants into one Asset Mix entry", () => {
+  const mortgageRows = [
+    { ...rows[3], category: "Mortgage Investment", current: 350000 },
+    { ...rows[4], category: "mortgage receivables", current: 250000 },
+    { ...rows[5], category: "MORTGAGE INVESTMENTS / MORTGAGE RECEIVABLES", current: 400000 },
+  ];
+  const mix = calculateAssetMix([...rows.slice(0, 3), ...mortgageRows]);
+  const mortgages = mix.filter((entry) => entry.category === "Mortgage Investments / Mortgage Receivables");
+  assert.equal(mortgages.length, 1);
+  assert.equal(mortgages[0].total, 1000000);
+  assert.equal(Number(mortgages[0].percentage.toFixed(1)), 34.1);
 });
 
 test("assigns and reassigns investors and rejects unnamed included rows",()=>{const unassigned={...rows[0],investor:""};assert.equal(hasUnnamedIncludedRows([unassigned]),true);assert.throws(()=>assignInvestor([unassigned],"x"," "),/required/);assert.equal(reassignInvestor(rows[0],"two","Jordan").investor,"Jordan");});

@@ -49,25 +49,33 @@ function makeRow(source: string, kind: Kind, holder: string, accountName: string
 export function parseFinancialText(text: string, source: string): ParsedRow[] {
   let section: Kind | null = null;
   let holder = "";
+  let accountType = "";
   const rows: ParsedRow[] = [];
   const seen = new Set<string>();
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\s+/g, " ").trim();
-    if (/^(?:current\s+)?assets?\s*:?$/i.test(line)) { section = "Asset"; holder = ""; continue; }
-    if (/^(?:current\s+)?liabilities?\s*:?$/i.test(line)) { section = "Liability"; holder = ""; continue; }
+    if (/^(?:current\s+)?assets?\s*:?$/i.test(line)) { section = "Asset"; holder = ""; accountType = ""; continue; }
+    if (/^(?:current\s+)?liabilities?\s*:?$/i.test(line)) { section = "Liability"; holder = ""; accountType = ""; continue; }
     if (/^(?:shareholders?'?\s+)?equity\s*:?$/i.test(line) || /^(?:income|revenue|expenses?)\s*:?$/i.test(line)) { section = null; continue; }
     if (!section || !line || totalLine.test(line) || prohibited.test(line) || metadata.test(line)) continue;
     const matches = [...line.matchAll(amountPattern)]
       .filter((match) => !/^\s*[A-Za-z]/.test(line.slice((match.index ?? 0) + match[0].length)))
       .map((match) => ({ index: match.index ?? 0, value: parseAmount(match[0]) }))
       .filter((match): match is {index:number;value:number} => match.value !== null);
-    if (!matches.length) { if (line.length > 2 && !/^[\d\W]+$/.test(line)) holder = line.replace(/:$/, ""); continue; }
+    if (!matches.length) {
+      if (line.length > 2 && !/^[\d\W]+$/.test(line)) {
+        const heading = line.replace(/:$/, "");
+        if (/^(?:mortgage investments?|mortgage receivables?|loans? receivable|cash|bank accounts?|cash & bank accounts?|investments?|real estate|accounts? payable|loans? payable|mortgages? payable)$/i.test(heading)) accountType = heading;
+        else { holder = heading; accountType = ""; }
+      }
+      continue;
+    }
     const label = cleanLabel(line.slice(0, matches[0].index));
     if (!label || totalLine.test(label) || prohibited.test(label) || metadata.test(label)) continue;
     const current = matches.length > 1 ? matches[matches.length - 2].value : matches[0].value;
     const previous = matches.length > 1 ? matches[matches.length - 1].value : null;
     const key = `${section}|${holder}|${label}|${current}|${previous}`.toLowerCase();
-    if (!seen.has(key)) { seen.add(key); rows.push(makeRow(source, section, holder, label, label, current, previous)); }
+    if (!seen.has(key)) { seen.add(key); rows.push(makeRow(source, section, holder, accountType || label, label, current, previous)); }
   }
   return rows;
 }

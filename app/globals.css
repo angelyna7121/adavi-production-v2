@@ -131,3 +131,36 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   .disclosureToggle { display:flex!important; }
   .categoryGroup,.holderGroup { break-inside:avoid; page-break-inside:avoid; }
 }
+
+/* Report hierarchy labels remain left-aligned while financial columns stay right-aligned. */
+.paper,.paper h1,.paper h2,.paper h3,.paper h4,.paper h5,.disclosureToggle span,.mix span { text-align:left; }
+.disclosureToggle strong,.mix strong { margin-left:auto; text-align:right; }
+.summary.assets { background:#d4aa51; color:#081525; border-color:#9c762d; }
+.summary.liabilities { background:#d9dde3; color:#172235; border-color:#929aa6; }
+.summary.networth { background:#102d5b; color:#fff; border-color:#081b39; }
+.summary.assets span,.summary.liabilities span { color:#172235; }.summary.networth span { color:#fff; }
+.printWatermark,.printBranding { display:none; }
+.upgradeBackdrop { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(3,10,20,.78); }
+.upgradePanel { position:relative; width:min(620px,100%); padding:34px; border:1px solid rgba(212,170,81,.55); border-radius:20px; background:#101f34; box-shadow:0 30px 100px #000; }
+.upgradePanel h2 { margin:10px 40px 10px 0; }.upgradePanel p,.upgradePanel li { color:#b4c0d0; line-height:1.5; }
+.dialogClose { position:absolute; right:18px; top:14px; border:0; background:transparent; color:white; font-size:30px; }
+.priceGrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:24px 0; }
+.priceGrid div { display:flex; flex-direction:column; gap:5px; padding:20px; border:1px solid #526683; border-radius:12px; background:#172944; }
+.priceGrid strong { color:var(--gold2); font-size:24px; }.priceGrid span { color:#b4c0d0; }
+.lockedNotice { margin-top:22px; padding:16px; border:1px solid #8c733f; border-radius:10px; background:#2a261b; }
+.lockedNotice p { margin:6px 0 0; }
+
+@media print {
+  .summary.assets { background:#d4aa51!important; color:#081525!important; border:2px solid #9c762d; }
+  .summary.liabilities { background:#d9dde3!important; color:#172235!important; border:2px solid #929aa6; }
+  .summary.networth { background:#102d5b!important; color:#fff!important; border:2px solid #081b39; }
+  .freeReport .printWatermark { display:block!important; position:fixed; z-index:-1; left:50%; top:50%; transform:translate(-50%,-50%) rotate(-30deg); color:#17355f!important; opacity:.07; font-size:76pt; font-weight:900; white-space:nowrap; }
+  .freeReport .printBranding { display:block!important; position:fixed; z-index:5; left:12mm; bottom:3mm; color:#596678!important; font-size:9pt; }
+}
+.mix { grid-template-columns:minmax(150px,1fr) 110px minmax(120px,2fr) 50px; }
+.mix em { font-style:normal; text-align:right; color:#425169; }
+@media print {
+  .freeReport .printWatermark { z-index:0; }
+  .freeReport > *:not(.printWatermark) { position:relative; z-index:1; }
+  .freeReport .printBranding { z-index:5; }
+}
