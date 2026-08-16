@@ -74,7 +74,7 @@ test("splits cash and investments columns without their combined total", () => {
     ["Asset", "CIBC Bank", "CAD Margin", "CAD Margin", "645.72", "421,995.01", "422,640.73"],
     ["Asset", "CIBC Bank", "Total CAD", "Total CAD", "645.72", "421,995.01", "422,640.73"],
   ], "investment.csv");
-  assert.deepEqual(rows.map((r) => [r.category, r.current]), [["Cash & Bank Accounts", 645.72], ["Investments", 421995.01]]);
+  assert.deepEqual(rows.map((r) => [r.category, r.current]), [["Cash and Bank Accounts", 645.72], ["Investments", 421995.01]]);
   assert.equal(rows.reduce((sum, row) => sum + row.current, 0), 422640.73);
 });
 

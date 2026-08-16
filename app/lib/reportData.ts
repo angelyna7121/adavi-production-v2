@@ -10,6 +10,9 @@ export function confirmedDetailRows(rows: ParsedRow[]) { return rows.filter((row
 export function calculateReconciliation(rows: ParsedRow[]) {
   const leaves=confirmedDetailRows(rows);const assets=leaves.filter((row)=>row.kind==="Asset").reduce((sum,row)=>sum+Number(row.current),0);const liabilities=leaves.filter((row)=>row.kind==="Liability").reduce((sum,row)=>sum+Number(row.current),0);const source=leaves.find((row)=>row.sourceCurrentNetWorth!==null&&row.sourceCurrentNetWorth!==undefined)?.sourceCurrentNetWorth??null;const calculated=assets-liabilities;return {calculated,source,difference:source===null?null:calculated-source,matches:source===null?null:Math.abs(calculated-source)<=1};
 }
+export function calculatePeriodTotals(rows:ParsedRow[],period:"current"|"previous"){
+  const leaves=confirmedDetailRows(rows);const value=(row:ParsedRow)=>period==="current"?Number(row.current):(row.previous??0);const leafAssets=leaves.filter((row)=>row.kind==="Asset").reduce((sum,row)=>sum+value(row),0);const liabilities=leaves.filter((row)=>row.kind==="Liability").reduce((sum,row)=>sum+value(row),0);const key=period==="current"?"sourceCurrentNetWorth":"sourcePreviousNetWorth";const source=leaves.find((row)=>row[key]!==null&&row[key]!==undefined)?.[key]??null;const leafNetWorth=leafAssets-liabilities;const useSource=source!==null&&Math.abs(leafNetWorth-source)<=1;const netWorth=useSource?source:leafNetWorth;return {assets:useSource?netWorth+liabilities:leafAssets,liabilities,netWorth,leafAssets,leafNetWorth,source,difference:source===null?null:leafNetWorth-source,reconciledToSource:useSource};
+}
 export type AssetMixEntry = { category: string; total: number; percentage: number };
 export function normalizeCategory(category: string) {
   const normalized = category.trim().toLowerCase().replace(/\s+/g, " ");

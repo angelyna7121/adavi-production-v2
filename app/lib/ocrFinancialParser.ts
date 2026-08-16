@@ -26,16 +26,16 @@ export function parseAccountingAmount(raw:string):number|null {
 function financialCategory(label:string, heading:string, negative:boolean):{kind:Kind;category:Category;holder:string;accountName:string}{
   const text=`${heading} ${label}`.toLowerCase();
   if(negative){
-    if(/corporate tax/.test(text))return {kind:"Liability",category:"Taxes Owing",holder:"Corporate tax",accountName:"Corporate tax payable / offset"};
-    if(/shareholder advance/.test(text))return {kind:"Liability",category:"Loans Payable",holder:label.replace(/^shareholder advance\s*[-–—]?\s*/i,"")||"Shareholder",accountName:"Shareholder advance payable"};
+    if(/corporate tax/.test(text))return {kind:"Liability",category:"Corporate Tax Payable",holder:"Corporate tax",accountName:"Corporate tax payable / offset"};
+    if(/shareholder advance/.test(text))return {kind:"Liability",category:"Shareholder Advances",holder:label.replace(/^shareholder advance\s*[-–—]?\s*/i,"")||"Shareholder",accountName:"Shareholder advance payable"};
     const entity=label.replace(/^loan payable\s*[-–—]?\s*/i,"").trim();return {kind:"Liability",category:"Loans Payable",holder:entity||"No holder specified",accountName:"Loan payable"};
   }
   if(/real estate/.test(text))return {kind:"Asset",category:"Real Estate",holder:"Real Estate",accountName:"Real estate equity"};
   if(/investments?/.test(heading))return {kind:"Asset",category:"Investments",holder:"Investments",accountName:"Investment"};
   if(/mortgages?/.test(heading))return {kind:"Asset",category:"Mortgage Investments / Mortgage Receivables",holder:"Mortgage investments",accountName:"Mortgage investment"};
   if(/loans? receivable/.test(heading)||/receivable/.test(label))return {kind:"Asset",category:"Loans Receivable",holder:label.includes("-")?label.split("-").at(-1)?.trim()||"Loans receivable":"Loans receivable",accountName:"Loan receivable"};
-  if(/\bcibc bank/.test(label))return {kind:"Asset",category:"Cash & Bank Accounts",holder:"CIBC Bank",accountName:label};
-  if(/corporate tax instalment/.test(text))return {kind:"Asset",category:"Other Assets",holder:"Corporate tax",accountName:"Corporate tax instalment receivable"};
+  if(/\bcibc bank/.test(label))return {kind:"Asset",category:"Cash and Bank Accounts",holder:"CIBC Bank",accountName:label};
+  if(/corporate tax instalment/.test(text))return {kind:"Asset",category:"Corporate Tax Instalment Receivable",holder:"Corporate tax",accountName:"Corporate tax instalment receivable"};
   return {kind:"Asset",category:inferCategory(text,"Asset"),holder:heading||"No holder specified",accountName:label};
 }
 
@@ -49,13 +49,15 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   let previousX=dateWords.find((word)=>/jun/i.test(word.text)) ? ((dateWords.find((word)=>/jun/i.test(word.text))!.x0+dateWords.find((word)=>/jun/i.test(word.text))!.x1)/2) : 470;
   let currentX=dateWords.find((word)=>/jul/i.test(word.text)) ? ((dateWords.find((word)=>/jul/i.test(word.text))!.x0+dateWords.find((word)=>/jul/i.test(word.text))!.x1)/2) : Math.max(...words.map((word)=>word.x1))*.9;
   if(currentX<previousX)[previousX,currentX]=[currentX,previousX];
+  const parseDate=(text:string)=>{const match=text.match(/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
+  const previousDate=parseDate(dateWords.find((word)=>/jun/i.test(word.text))?.text??"");const currentDate=parseDate(dateWords.find((word)=>/jul/i.test(word.text))?.text??"");
   let heading="";let lastDescription="";const rows:ParsedRow[]=[];let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
   const headingPattern=/^(real estate|investments?|loans? receivable|mortgages?|corporate tax instalment)$/i;
   for(const line of lines){const text=line.text.trim();if(headingPattern.test(text)){heading=text;continue;}if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=lineAmount(line,previousX);sourceCurrentNetWorth=lineAmount(line,currentX);continue;}if(totalPattern.test(text)||/%/.test(text)||/\b(?:income|fees|interest earned)\b/i.test(text))continue;
     const previous=lineAmount(line,previousX),current=lineAmount(line,currentX);if(current===null&&previous===null)continue;
     const firstBalanceX=Math.min(...line.words.filter((word)=>parseAccountingAmount(word.text)!==null).map((word)=>word.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5]$/.test(word.text)).map((word)=>word.text).join(" ").trim();const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
-    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||line.words.some((word)=>word.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null});
+    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||line.words.some((word)=>word.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate});
   }
   for(const row of rows){row.sourceCurrentNetWorth=sourceCurrentNetWorth;row.sourcePreviousNetWorth=sourcePreviousNetWorth;}
   return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0};

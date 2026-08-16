@@ -2,25 +2,26 @@
 
 import { useMemo, useRef, useState } from "react";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
-import { assignInvestor, calculateAssetMix, calculateReconciliation, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows } from "./lib/reportData";
+import { assignInvestor, calculateAssetMix, calculatePeriodTotals, calculateReconciliation, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows } from "./lib/reportData";
 
 type Step = "upload" | "review" | "report";
 type Investor = { id: string; name: string; files: string[] };
 
 const sampleRows: Row[] = [
-  { id: "1", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Cash & Bank Accounts", holder: "Sample Bank", accountName: "Chequing", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "alex-bank.csv" },
+  { id: "1", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Cash and Bank Accounts", holder: "Sample Bank", accountName: "Chequing", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "alex-bank.csv" },
   { id: "2", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Investments", holder: "Sample Brokerage", accountName: "Non-registered Portfolio", institution: "Sample Brokerage", description: "Non-registered Portfolio", current: 215000, previous: 202000, kind: "Asset", source: "alex-portfolio.csv" },
   { id: "3", include: true, investorId: "sample-b", investor: "Jordan Morgan", category: "Real Estate", holder: "Principal Residence", accountName: "Property", institution: "Principal Residence", description: "Estimated Fair Market Value", current: 780000, previous: 750000, kind: "Asset", source: "jordan-property.csv" },
   { id: "4", include: true, investorId: "sample-b", investor: "Jordan Morgan", category: "Mortgages Payable", holder: "Sample Lender", accountName: "Residential Mortgage", institution: "Sample Lender", description: "Residential Mortgage", current: 325000, previous: null, kind: "Liability", source: "jordan-mortgage.csv" },
 ];
 
-const assetCategories: Category[] = ["Cash & Bank Accounts", "Investments", "Mortgage Investments / Mortgage Receivables", "Loans Receivable", "Vehicles", "Insurance Cash Value", "Inherited Assets", "Real Estate", "Other Assets"];
-const liabilityCategories: Category[] = ["Mortgages Payable", "Loans Payable", "Taxes Owing", "Accounts Payable", "Credit Cards", "Other Liabilities"];
+const assetCategories: Category[] = ["Real Estate", "Investments", "Loans Receivable", "Mortgage Investments / Mortgage Receivables", "Corporate Tax Instalment Receivable", "Cash and Bank Accounts", "Other Receivables", "Vehicles", "Insurance Cash Value", "Inherited Assets", "Other Assets"];
+const liabilityCategories: Category[] = ["Corporate Tax Payable", "Loans Payable", "Shareholder Advances", "Mortgages Payable", "Taxes Owing", "Accounts Payable", "Credit Cards", "Other Liabilities"];
 
 function money(value: number | null | "") {
   if (value === null || value === "" || !Number.isFinite(Number(value))) return "N/A";
   const number = Number(value);
-  return new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(number);
+  const formatted = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.abs(number));
+  return number < 0 ? `(${formatted})` : formatted;
 }
 
 export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedPaidEntitlement: boolean }) {
@@ -40,13 +41,15 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
   const hasInvalidIncludedRows = rows.some((row) => row.include && (!row.description.trim() || row.current === "")) || hasUnnamedIncludedRows(rows);
   const files = investorList.flatMap((investor) => investor.files);
   const activeInvestor = investorList.find((investor) => investor.id === activeInvestorId);
-  const assets = included.filter((row) => row.kind === "Asset").reduce((sum, row) => sum + Number(row.current), 0);
-  const liabilities = included.filter((row) => row.kind === "Liability").reduce((sum, row) => sum + Number(row.current), 0);
-  const netWorth = assets - liabilities;
-  const previousAssets = included.filter((row) => row.kind === "Asset" && row.previous !== null).reduce((sum, row) => sum + Number(row.previous), 0);
-  const previousLiabilities = included.filter((row) => row.kind === "Liability" && row.previous !== null).reduce((sum, row) => sum + Number(row.previous), 0);
+  const currentTotals = useMemo(() => calculatePeriodTotals(rows, "current"), [rows]);
+  const priorTotals = useMemo(() => calculatePeriodTotals(rows, "previous"), [rows]);
+  const { assets, liabilities, netWorth } = currentTotals;
+  const { assets: previousAssets, liabilities: previousLiabilities, netWorth: previousNetWorth } = priorTotals;
   const hasPrevious = included.some((row) => row.previous !== null);
-  const previousNetWorth = previousAssets - previousLiabilities;
+  const netWorthChange = netWorth - previousNetWorth;
+  const currentPeriodLabel = new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" });
+  const statement = new Date(`${statementDate}T00:00:00Z`);
+  const previousPeriodLabel = new Date(Date.UTC(statement.getUTCFullYear(), statement.getUTCMonth(), 0)).toLocaleDateString("en-CA", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
   const investors = Array.from(new Set(included.map((row) => row.investor)));
   const reportGroups = useMemo(() => groupReportRows(rows), [rows]);
   const assetMix = useMemo(() => calculateAssetMix(rows), [rows]);
@@ -78,6 +81,8 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     }
     setError(errors.length ? `Some files could not be read: ${errors.join(" ")}` : "");
     setRows((current) => [...current, ...parsed]);
+    const extractedStatementDate = parsed.find((row) => row.sourceCurrentDate)?.sourceCurrentDate;
+    if (extractedStatementDate) setStatementDate(extractedStatementDate);
     setInvestorList((current) => current.map((investor) => investor.id === activeInvestorId ? { ...investor, files: [...investor.files, ...selected.map((file) => file.name)] } : investor));
   }
 
@@ -204,15 +209,15 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
 
         {step === "report" && (
           <section className="reportArea">
-            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your consolidated statement is complete</h2><p>{groupName} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p></div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" onClick={() => window.print()}>Print</button><button className="primary" onClick={downloadCsv}>Download data</button><button className="secondary" onClick={() => setShowUpgrade(true)}>Remove adavi.ai branding</button></div></div>
+            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your consolidated statement is complete</h2><p>{groupName} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p></div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" onClick={() => window.print()}>Print</button><button className="primary" onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" onClick={() => window.print()}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
             <article className={`paper ${hasVerifiedPaidEntitlement ? "paidReport" : "freeReport"}`}>
               {!hasVerifiedPaidEntitlement && <><div className="printWatermark" aria-hidden="true">adavi.ai</div><div className="printBranding">Prepared by adavi.ai</div></>}
               <div className="paperHead"><div>{!hasVerifiedPaidEntitlement && <div className="paperBrand"><span className="brandMark">ϟ</span> adavi.ai</div>}<h1>Consolidated Net Worth Report</h1><p>{groupName}</p></div><div className="dateBlock"><span>Statement date</span><strong>{statementDate}</strong><span>Currency</span><strong>CAD</strong></div></div>
-              <div className="summaryCards"><Summary label="Total Assets" value={money(assets)} tone="assets" /><Summary label="Total Liabilities" value={money(liabilities)} tone="liabilities" /><Summary label="Net Worth" value={money(netWorth)} tone="networth" /></div>
+              <div className="summaryCards"><Summary label="Total Assets" current={money(assets)} previous={money(previousAssets)} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} tone="assets" /><Summary label="Total Liabilities" current={money(liabilities)} previous={money(previousLiabilities)} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} tone="liabilities" /><Summary label="Net Worth" current={money(netWorth)} previous={money(previousNetWorth)} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} change={money(netWorthChange)} tone="networth" /></div>
               <h3>Net Worth by Investor</h3>
               <table className="reportTable"><thead><tr><th>Investor</th><th>Assets</th><th>Liabilities</th><th>Net Worth</th></tr></thead><tbody>{investors.map((investor) => { const owned = included.filter((r) => r.investor === investor); const a = owned.filter((r) => r.kind === "Asset").reduce((s, r) => s + Number(r.current), 0); const l = owned.filter((r) => r.kind === "Liability").reduce((s, r) => s + Number(r.current), 0); return <tr key={investor}><td><strong>{investor}</strong></td><td>{money(a)}</td><td>{money(l)}</td><td><strong>{money(a-l)}</strong></td></tr>; })}</tbody></table>
               <h3>Consolidated Schedule</h3>
-              <div className="detailedStatement">{reportGroups.map((investor) => <section className="investorGroup" key={investor.investor}><h4>{investor.investor}</h4>{investor.sections.map((section) => <section className="statementSection" key={section.kind}><h5>{section.kind === "Asset" ? "Assets" : "Liabilities"}</h5>{section.categories.map((category) => <Disclosure className="categoryGroup" label={category.category} total={money(category.total)} key={category.category}>{category.holders.map((holder) => <Disclosure className="holderGroup" label={holder.holder} total={money(holder.total)} key={holder.holder}><table className="reportTable accountTable"><thead><tr><th>Account / Description</th><th>Current</th><th>Previous</th></tr></thead><tbody>{holder.rows.map((row) => <tr key={row.id}><td><strong>{row.accountName || row.description}</strong>{row.accountName !== row.description && <small>{row.description}</small>}</td><td>{money(row.current)}</td><td>{money(row.previous)}</td></tr>)}</tbody></table></Disclosure>)}</Disclosure>)}</section>)}</section>)}</div>
+              <div className="detailedStatement">{reportGroups.map((investor) => <section className="investorGroup" key={investor.investor}><h4>{investor.investor}</h4>{investor.sections.map((section) => <section className="statementSection" key={section.kind}><h5>{section.kind === "Asset" ? "Assets" : "Liabilities"}</h5>{section.categories.map((category) => <Disclosure className="categoryGroup" label={category.category} total={money(category.total)} key={category.category}>{category.holders.map((holder) => <Disclosure className="holderGroup" label={holder.holder} total={money(holder.total)} key={holder.holder}><table className="reportTable accountTable"><thead><tr><th>Account / Description</th><th>Current</th><th>Previous</th></tr></thead><tbody>{holder.rows.map((row) => <tr key={row.id}><td><strong>{row.description}</strong>{row.accountName && row.accountName !== row.description && <small>{row.accountName}</small>}</td><td>{money(row.current)}</td><td>{money(row.previous)}</td></tr>)}</tbody></table></Disclosure>)}<div className="categorySubtotal"><span>Total {category.category}</span><strong>{money(category.total)}</strong></div></Disclosure>)}</section>)}</section>)}</div>
               <table className="reportTable consolidatedTotal"><tfoot><tr><td>Consolidated Net Worth</td><td>{money(netWorth)}</td><td>{hasPrevious ? money(previousNetWorth) : "N/A"}</td><td>{hasPrevious ? money(netWorth - previousNetWorth) : "N/A"}</td></tr></tfoot></table>
               <div className="reportBottom"><div><h3>Asset Mix</h3>{assetMix.map((entry) => <div className="mix" key={entry.category}><span>{entry.category}</span><em>{money(entry.total)}</em><div><i style={{ width: `${entry.percentage ? Math.max(4, entry.percentage) : 0}%` }} /></div><strong>{entry.percentage.toFixed(1)}%</strong></div>)}</div><div className="disclaimer"><strong>About this report</strong><p>This report consolidates the information reviewed and confirmed by the user. Values marked N/A were unavailable and are treated as zero only for comparative totals.</p></div></div>
               {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Prepared by adavi.ai</span><span>Educational estimates only · Not tax, legal, accounting, or investment advice</span></footer>}
@@ -226,7 +231,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
 }
 
 function Metric({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) { return <div className={`metric ${accent ? "accent" : ""}`}><span>{label}</span><strong>{value}</strong></div>; }
-function Summary({ label, value, tone }: { label: string; value: string; tone: string }) { return <div className={`summary ${tone}`}><span>{label}</span><strong>{value}</strong></div>; }
+function Summary({ label, current, previous, currentLabel, previousLabel, tone, change }: { label: string; current: string; previous: string; currentLabel: string; previousLabel: string; tone: string; change?: string }) { return <div className={`summary ${tone}`}><h3>{label}</h3><div className="summaryPeriod"><span>Current · {currentLabel}</span><strong>{current}</strong></div><div className="summaryPeriod"><span>Previous · {previousLabel}</span><strong>{previous}</strong></div>{change && <div className="summaryChange"><span>Change in net worth</span><strong>{change}</strong></div>}</div>; }
 
 function Disclosure({ className, label, total, children }: { className: string; label: string; total: string; children: React.ReactNode }) {
   const [expanded, setExpanded] = useState(true);
