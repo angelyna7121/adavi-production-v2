@@ -175,7 +175,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .summaryChange { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.35); }
 .summaryChange strong { margin:0; font-size:18px; }
 .reportTable td:not(:first-child),.reportTable th:not(:first-child),.summary strong,.mix em,.mix strong,.categorySubtotal strong { text-align:right; font-variant-numeric:tabular-nums lining-nums; white-space:nowrap; }
-.categorySubtotal { display:flex; justify-content:space-between; gap:16px; padding:11px 14px; border-top:2px solid #9ba7b6; background:#f4f6f8; font-weight:900; }
+.categorySubtotal { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; padding:11px 14px; border-top:2px solid #9ba7b6; background:#f4f6f8; font-weight:900; }
 @media print {
   .summaryCards { grid-template-columns:repeat(3,minmax(0,1fr))!important; gap:10px; }
   .summary { padding:15px; }

@@ -13,6 +13,7 @@ export type ParsedRow = {
   ocrConfidence?: number; needsReview?: boolean;
   sourceCurrentNetWorth?: number | null; sourcePreviousNetWorth?: number | null;
   sourceCurrentDate?: string; sourcePreviousDate?: string;
+  sourceCategoryControlCurrent?: number | null; sourceCategoryControlPrevious?: number | null;
 };
 type Progress = (message: string) => void;
 
