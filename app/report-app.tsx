@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
-import { assignInvestor, calculateAssetMix, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows } from "./lib/reportData";
+import { assignInvestor, calculateAssetMix, calculateReconciliation, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows } from "./lib/reportData";
 
 type Step = "upload" | "review" | "report";
 type Investor = { id: string; name: string; files: string[] };
@@ -50,6 +50,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
   const investors = Array.from(new Set(included.map((row) => row.investor)));
   const reportGroups = useMemo(() => groupReportRows(rows), [rows]);
   const assetMix = useMemo(() => calculateAssetMix(rows), [rows]);
+  const reconciliation = useMemo(() => calculateReconciliation(rows), [rows]);
 
   async function acceptFiles(list: FileList | File[]) {
     const selected = Array.from(list);
@@ -178,9 +179,11 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
               <Metric label="Reconciled liabilities" value={money(liabilities)} />
               <Metric label="Net worth" value={money(netWorth)} accent />
             </div>
+            {rows.some((row) => row.needsReview) && <div className="reconciliationWarning" role="status">Some OCR values had low confidence and are highlighted for review. Confirm them against the statement before generating the report.</div>}
+            {reconciliation.matches === false && <div className="reconciliationWarning" role="alert">Calculated net worth differs from the statement’s TOTAL NET WORTH by {money(Math.abs(reconciliation.difference!))}. Review the highlighted extraction values.</div>}
             <div className="tableWrap" tabIndex={0} aria-label="Review extracted financial rows">
               <table className="reviewTable"><thead><tr><th>Include</th><th>Investor</th><th>Category</th><th>Holder / Institution</th><th>Account type</th><th>Description</th><th>Current Value</th><th>Previous Value</th><th>Asset / Liability</th><th>Source</th><th></th></tr></thead>
-                <tbody>{rows.map((row) => <tr key={row.id}>
+                <tbody>{rows.map((row) => <tr key={row.id} className={row.needsReview ? "needsReview" : ""}>
                   <td><input type="checkbox" checked={row.include} onChange={(e) => update(row.id, { include: e.target.checked })} /></td>
                   <td><select aria-label="Assigned investor" value={row.investor} className={!row.investor.trim() ? "invalid" : ""} onChange={(e) => { const selected = investorList.find((investor) => investor.name === e.target.value); update(row.id, { investor: e.target.value, investorId: selected?.id }); }}><option value="">Select investor</option>{investorList.filter((item) => item.name.trim()).map((item) => <option key={item.id} value={item.name.trim()}>{item.name.trim()}</option>)}</select></td>
                   <td><select value={row.category} onChange={(e) => update(row.id, { category: e.target.value as Category })}>{(row.kind === "Asset" ? assetCategories : liabilityCategories).map((c) => <option key={c}>{c}</option>)}</select></td>

@@ -7,6 +7,9 @@ export function hasUnnamedIncludedRows(rows: ParsedRow[]) { return rows.some((ro
 export function isSummaryRow(row: ParsedRow) { return /^\s*(?:grand\s+total|sub\s*total|subtotal|total)(?:\s|:|-|$)/i.test(row.description); }
 /** The public report model contains confirmed numeric leaf accounts only; source totals are never public rows. */
 export function confirmedDetailRows(rows: ParsedRow[]) { return rows.filter((row)=>row.include&&row.current!==""&&!isSummaryRow(row)); }
+export function calculateReconciliation(rows: ParsedRow[]) {
+  const leaves=confirmedDetailRows(rows);const assets=leaves.filter((row)=>row.kind==="Asset").reduce((sum,row)=>sum+Number(row.current),0);const liabilities=leaves.filter((row)=>row.kind==="Liability").reduce((sum,row)=>sum+Number(row.current),0);const source=leaves.find((row)=>row.sourceCurrentNetWorth!==null&&row.sourceCurrentNetWorth!==undefined)?.sourceCurrentNetWorth??null;const calculated=assets-liabilities;return {calculated,source,difference:source===null?null:calculated-source,matches:source===null?null:Math.abs(calculated-source)<=1};
+}
 export type AssetMixEntry = { category: string; total: number; percentage: number };
 export function normalizeCategory(category: string) {
   const normalized = category.trim().toLowerCase().replace(/\s+/g, " ");

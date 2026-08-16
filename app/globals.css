@@ -164,3 +164,6 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   .freeReport > *:not(.printWatermark) { position:relative; z-index:1; }
   .freeReport .printBranding { z-index:5; }
 }
+.reconciliationWarning { margin:0 28px 20px; padding:14px 18px; border:1px solid #d4aa51; border-radius:10px; background:#332b19; color:#f6dfaa; }
+.reviewTable tr.needsReview { background:rgba(212,170,81,.10); }
+.reviewTable tr.needsReview input,.reviewTable tr.needsReview select { border-color:#d4aa51; }

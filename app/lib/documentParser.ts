@@ -1,3 +1,5 @@
+import type { PDFPageProxy } from "pdfjs-dist";
+
 export type Kind = "Asset" | "Liability";
 export type AssetCategory = "Cash & Bank Accounts" | "Investments" | "Mortgage Investments / Mortgage Receivables" | "Loans Receivable" | "Vehicles" | "Insurance Cash Value" | "Inherited Assets" | "Real Estate" | "Other Assets";
 export type LiabilityCategory = "Mortgages Payable" | "Loans Payable" | "Taxes Owing" | "Accounts Payable" | "Credit Cards" | "Other Liabilities";
@@ -8,6 +10,8 @@ export type ParsedRow = {
   category: Category; holder: string; accountName: string; institution: string;
   description: string; current: number | ""; previous: number | null;
   kind: Kind; source: string;
+  ocrConfidence?: number; needsReview?: boolean;
+  sourceCurrentNetWorth?: number | null; sourcePreviousNetWorth?: number | null;
 };
 type Progress = (message: string) => void;
 
@@ -117,5 +121,27 @@ export function parseTabularRows(data: unknown[][], source: string): ParsedRow[]
 async function parseSpreadsheet(file: File) { const XLSX = await import("xlsx"); const book = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false }); return book.SheetNames.flatMap((name) => parseTabularRows(XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, defval: "" }), file.name)); }
 async function createOcrWorker(progress: Progress) { const { createWorker } = await import("tesseract.js"); return createWorker("eng", 1, { workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang", logger: (m) => { if (m.status === "recognizing text") progress(`Reading scan… ${Math.round((m.progress || 0) * 100)}%`); } }); }
 async function parseImage(file: File, progress: Progress) { const worker = await createOcrWorker(progress); try { return parseFinancialText((await worker.recognize(file)).data.text, file.name); } finally { await worker.terminate(); } }
-async function parsePdf(file: File, progress: Progress) { const pdfjs = await import("pdfjs-dist"); pdfjs.GlobalWorkerOptions.workerSrc = "/pdf/pdf.worker.min.mjs"; const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise; const rows: ParsedRow[] = []; let worker: Awaited<ReturnType<typeof createOcrWorker>> | null = null; try { for (let n=1;n<=Math.min(pdf.numPages,25);n++) { progress(`Reading PDF page ${n} of ${Math.min(pdf.numPages,25)}…`); const page=await pdf.getPage(n); const content=await page.getTextContent(); let text=content.items.map((item)=>"str" in item ? `${item.str}${"hasEOL" in item && item.hasEOL ? "\n":" "}`:"").join("").trim(); if(text.length<40){const viewport=page.getViewport({scale:2});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);const context=canvas.getContext("2d");if(!context)continue;await page.render({canvasContext:context,viewport,canvas}).promise;worker ||= await createOcrWorker(progress);text=(await worker.recognize(canvas)).data.text;} rows.push(...parseFinancialText(text,file.name)); } } finally { await worker?.terminate(); await pdf.destroy(); } return rows; }
+export function rotationCandidates(baseRotation:number){return [0,90,180,270].map((extra)=>(baseRotation+extra)%360);}
+export function shouldUseOcr(embeddedRows:ParsedRow[]){return embeddedRows.length===0;}
+async function renderPage(page:PDFPageProxy,rotation:number){const viewport=page.getViewport({scale:4,rotation});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Canvas context unavailable");context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);await page.render({canvasContext:context,viewport,canvas,background:"#ffffff"}).promise;return canvas;}
+async function parsePdf(file: File, progress: Progress) {
+  const pdfjs = await import("pdfjs-dist");
+  const { extractWordsWithBoundingBoxes, financialScore, parseOcrFinancialWords } = await import("./ocrFinancialParser");
+  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf/pdf.worker.min.mjs";
+  const pdf = await pdfjs.getDocument({ data:new Uint8Array(await file.arrayBuffer()) }).promise;
+  const pages=[];const embeddedRows:ParsedRow[]=[];
+  try {
+    for(let n=1;n<=pdf.numPages;n++){progress(`Reading PDF text page ${n} of ${pdf.numPages}…`);const page=await pdf.getPage(n);pages.push(page);const content=await page.getTextContent();const text=content.items.map((item)=>"str" in item?`${item.str}${"hasEOL" in item&&item.hasEOL?"\n":" "}`:"").join("");embeddedRows.push(...parseFinancialText(text,file.name));}
+    if(!shouldUseOcr(embeddedRows))return embeddedRows;
+    const worker=await createOcrWorker(progress);const rows:ParsedRow[]=[];
+    try {
+      for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>}|undefined;
+        for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const score=financialScore(result.data.text||"",result.data.confidence||0);if(!best||score>best.score)best={score,words};}
+        if(!best?.words.length)continue;rows.push(...parseOcrFinancialWords(best.words,file.name).rows);
+      }
+    } finally { await worker.terminate(); }
+    if(!rows.length)throw new Error("OCR could not find credible financial account balances in this PDF.");
+    return rows;
+  } finally { await pdf.destroy(); }
+}
 export async function parseDocument(file: File, progress: Progress): Promise<ParsedRow[]> { const extension=file.name.split(".").pop()?.toLowerCase(); if(file.size>10*1024*1024)throw new Error(`${file.name} exceeds the 10 MB limit.`);if(["csv","xlsx","xls"].includes(extension||""))return parseSpreadsheet(file);if(extension==="pdf")return parsePdf(file,progress);if(["jpg","jpeg","png"].includes(extension||""))return parseImage(file,progress);throw new Error(`${file.name} is not a supported statement format.`); }
