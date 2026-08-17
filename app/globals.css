@@ -193,6 +193,5 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .disclosureToggle > strong { margin:0; text-align:right; font-variant-numeric:tabular-nums lining-nums; white-space:nowrap; }
 @media (max-width:640px) { .disclosureToggle { grid-template-columns:auto minmax(0,1fr) 80px 80px; } }
 @media print {
-  .accountTable thead { display:none!important; }
   .disclosureToggle { grid-template-columns:auto minmax(0,1fr) 120px 120px; }
 }
