@@ -26,6 +26,7 @@ export function formatPeriodAmount(value:number|null):string {if(value===null)re
 
 const totalPattern = /^(?:sub[ -]?total|total)(?:\s|$)/i;
 const balancePattern = /^(?:[$S5])?\(?-?\d{1,3}(?:[,.'’]\d{3})+(?:[.,]\d{2})?\)?$/;
+const receivableVariant = /receiv[aei]?[b8][l1][e]?/i;
 
 export function extractWordsWithBoundingBoxes(data: { blocks?: Array<{ paragraphs?: Array<{ lines?: Array<{ words?: Array<{ text:string; confidence:number; bbox:{x0:number;y0:number;x1:number;y1:number} }> }> }> }> | null }): OcrWord[] {
   return (data.blocks ?? []).flatMap((block) => block.paragraphs ?? []).flatMap((paragraph) => paragraph.lines ?? []).flatMap((line) => line.words ?? []).map((word) => ({ text:word.text, confidence:word.confidence, ...word.bbox }));
@@ -80,7 +81,6 @@ function financialCategory(label:string, heading:string, negative:boolean):{kind
   }
   // Explicit leaf descriptions override a stale or missed OCR section heading.
   if(/\bcibc bank/i.test(label))return {kind:"Asset",category:"Cash & Bank Accounts",holder:"CIBC Bank",accountName:label};
-  const receivableVariant=/receiv(?:able|eble|ible|abie|ebie)/i;
   if(receivableVariant.test(label)&&!/loans? receivable/i.test(heading)){const holder=label.replace(new RegExp(`\\s*[-–—]?\\s*${receivableVariant.source}\\s*$`,"i"),"").trim();return {kind:"Asset",category:"Loans Receivable",holder:holder||"Receivables",accountName:"Receivable"};}
   if(/real estate/.test(text))return {kind:"Asset",category:"Real Estate",holder:"Real Estate",accountName:"Real estate equity"};
   if(/investments?/.test(heading))return {kind:"Asset",category:"Investments",holder:"Investments",accountName:"Investment"};
@@ -113,14 +113,14 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();const consumed=new Set<OcrWord>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
   for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
     const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&!lineCandidates.length){heading=detectedHeading;continue;}
-    const height=Math.max(...line.words.map((word)=>word.y1-word.y0),12);const nextDescription=lines.slice(lineIndex+1).find((candidate)=>candidate.words.some((word)=>word.x0<previousX-columnTolerance));const lowerLimit=nextDescription?(line.y+nextDescription.y)/2:line.y+height;const rowBox={x0:0,x1:Math.max(...words.map((word)=>word.x1)),y0:line.y-height*.85,y1:Math.min(line.y+height*.85,lowerLimit-.01)};
+    const height=Math.max(...line.words.map((word)=>word.y1-word.y0),12);const isDescription=(candidate:OcrLine)=>candidate.words.some((word)=>word.x0<previousX-columnTolerance&&/[a-z]/i.test(word.text));const previousDescription=[...lines.slice(0,lineIndex)].reverse().find(isDescription);const nextDescription=lines.slice(lineIndex+1).find(isDescription);const upperLimit=previousDescription?(previousDescription.y+line.y)/2:line.y-height;const lowerLimit=nextDescription?(line.y+nextDescription.y)/2:line.y+height;const rowBox={x0:0,x1:Math.max(...words.map((word)=>word.x1)),y0:upperLimit+.01,y1:lowerLimit-.01};
     const recovered=recoverRowPeriods(words.filter((word)=>!consumed.has(word)),rowBox,columns,columnTolerance);const {previous,current}=recovered.periods;
     if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=previous;sourceCurrentNetWorth=current;continue;}
     if(/\b(?:income|fees|interest earned)\b/i.test(text))continue;
     if(!recovered.candidates.length)continue;
     const firstBalanceX=Math.min(...recovered.candidates.map((candidate)=>candidate.box.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5()]$/.test(word.text)).map((word)=>word.text).join(" ").replace(/\b\d+(?:\.\d+)?%/g,"").replace(/\s{2,}/g," ").trim();
     if(totalPattern.test(label)||(!label&&heading)){controls.set(controlKey(heading),{current,previous});continue;}
-    const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
+    label=label.replace(receivableVariant,"receivable");const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
     recovered.candidates.flatMap((candidate)=>candidate.words).forEach((word)=>consumed.add(word));
     rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate});
