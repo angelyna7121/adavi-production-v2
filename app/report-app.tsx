@@ -2,27 +2,23 @@
 
 import { useMemo, useRef, useState } from "react";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
+import { formatPeriodAmount } from "./lib/ocrFinancialParser";
 import { assignInvestor, calculateAssetMix, calculatePeriodTotals, calculateReconciliation, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows } from "./lib/reportData";
 
 type Step = "upload" | "review" | "report";
 type Investor = { id: string; name: string; files: string[] };
 
 const sampleRows: Row[] = [
-  { id: "1", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Cash and Bank Accounts", holder: "Sample Bank", accountName: "Chequing", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "alex-bank.csv" },
+  { id: "1", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Cash & Bank Accounts", holder: "Sample Bank", accountName: "Chequing", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "alex-bank.csv" },
   { id: "2", include: true, investorId: "sample-a", investor: "Alex Morgan", category: "Investments", holder: "Sample Brokerage", accountName: "Non-registered Portfolio", institution: "Sample Brokerage", description: "Non-registered Portfolio", current: 215000, previous: 202000, kind: "Asset", source: "alex-portfolio.csv" },
   { id: "3", include: true, investorId: "sample-b", investor: "Jordan Morgan", category: "Real Estate", holder: "Principal Residence", accountName: "Property", institution: "Principal Residence", description: "Estimated Fair Market Value", current: 780000, previous: 750000, kind: "Asset", source: "jordan-property.csv" },
   { id: "4", include: true, investorId: "sample-b", investor: "Jordan Morgan", category: "Mortgages Payable", holder: "Sample Lender", accountName: "Residential Mortgage", institution: "Sample Lender", description: "Residential Mortgage", current: 325000, previous: null, kind: "Liability", source: "jordan-mortgage.csv" },
 ];
 
-const assetCategories: Category[] = ["Real Estate", "Investments", "Loans Receivable", "Mortgage Investments / Mortgage Receivables", "Corporate Tax Instalment Receivable", "Cash and Bank Accounts", "Other Receivables", "Vehicles", "Insurance Cash Value", "Inherited Assets", "Other Assets"];
+const assetCategories: Category[] = ["Real Estate", "Investments", "Loans Receivable", "Mortgage Investments / Mortgage Receivables", "Corporate Tax Instalment Receivable", "Cash & Bank Accounts", "Other Receivables", "Vehicles", "Insurance Cash Value", "Inherited Assets", "Other Assets"];
 const liabilityCategories: Category[] = ["Corporate Tax Payable", "Loans Payable", "Shareholder Advances", "Mortgages Payable", "Taxes Owing", "Accounts Payable", "Credit Cards", "Other Liabilities"];
 
-function money(value: number | null | "") {
-  if (value === null || value === "" || !Number.isFinite(Number(value))) return "N/A";
-  const number = Number(value);
-  const formatted = new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD", minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(Math.abs(number));
-  return number < 0 ? `(${formatted})` : formatted;
-}
+function money(value: number | null | "") { return value === "" ? "N/A" : formatPeriodAmount(value); }
 
 export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedPaidEntitlement: boolean }) {
   const [step, setStep] = useState<Step>("upload");
@@ -188,14 +184,13 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
             {currentTotals.categories.some((category) => category.status === "minor-source-difference") && <div className="reconciliationWarning" role="status">The statement contains a $1 difference between displayed leaf accounts and a printed category subtotal. The printed subtotal is used once as the reconciliation control; no adjustment account was invented.</div>}
             {reconciliation.matches === false && <div className="reconciliationWarning" role="alert">Calculated net worth differs from the statement’s TOTAL NET WORTH by {money(Math.abs(reconciliation.difference!))}. Review the highlighted extraction values.</div>}
             <div className="tableWrap" tabIndex={0} aria-label="Review extracted financial rows">
-              <table className="reviewTable"><thead><tr><th>Include</th><th>Investor</th><th>Category</th><th>Holder / Institution</th><th>Account type</th><th>Description</th><th>Current Value</th><th>Previous Value</th><th>Asset / Liability</th><th>Source</th><th></th></tr></thead>
+              <table className="reviewTable"><thead><tr><th>Include</th><th>Investor</th><th>Category</th><th>Holder / Institution</th><th>Account / Description</th><th>Current</th><th>Previous</th><th>Asset / Liability</th><th>Source</th><th></th></tr></thead>
                 <tbody>{rows.map((row) => <tr key={row.id} className={row.needsReview ? "needsReview" : ""}>
                   <td><input type="checkbox" checked={row.include} onChange={(e) => update(row.id, { include: e.target.checked })} /></td>
                   <td><select aria-label="Assigned investor" value={row.investor} className={!row.investor.trim() ? "invalid" : ""} onChange={(e) => { const selected = investorList.find((investor) => investor.name === e.target.value); update(row.id, { investor: e.target.value, investorId: selected?.id }); }}><option value="">Select investor</option>{investorList.filter((item) => item.name.trim()).map((item) => <option key={item.id} value={item.name.trim()}>{item.name.trim()}</option>)}</select></td>
                   <td><select value={row.category} onChange={(e) => update(row.id, { category: e.target.value as Category })}>{(row.kind === "Asset" ? assetCategories : liabilityCategories).map((c) => <option key={c}>{c}</option>)}</select></td>
                   <td><input value={row.holder} placeholder="Holder / institution" onChange={(e) => update(row.id, { holder: e.target.value, institution: e.target.value })} /></td>
-                  <td><input value={row.accountName} placeholder="Account type" onChange={(e) => update(row.id, { accountName: e.target.value })} /></td>
-                  <td><input required aria-invalid={!row.description.trim()} className={!row.description.trim() ? "invalid" : ""} value={row.description} placeholder="Required" onChange={(e) => update(row.id, { description: e.target.value })} /></td>
+                  <td><input value={row.accountName} aria-label="Account" placeholder="Account" onChange={(e) => update(row.id, { accountName: e.target.value })} /><input required aria-label="Description" aria-invalid={!row.description.trim()} className={!row.description.trim() ? "invalid" : ""} value={row.description} placeholder="Description required" onChange={(e) => update(row.id, { description: e.target.value })} /></td>
                   <td><input required aria-invalid={row.current === ""} type="number" className={row.current === "" ? "invalid" : ""} value={row.current} onChange={(e) => update(row.id, { current: e.target.value === "" ? "" : Number(e.target.value) })} /></td>
                   <td><input type="number" value={row.previous ?? ""} placeholder="N/A" onChange={(e) => update(row.id, { previous: e.target.value === "" ? null : Number(e.target.value) })} /></td>
                   <td><select value={row.kind} onChange={(e) => update(row.id, { kind: e.target.value as Kind })}><option>Asset</option><option>Liability</option></select></td>

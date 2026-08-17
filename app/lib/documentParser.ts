@@ -1,7 +1,7 @@
 import type { PDFPageProxy } from "pdfjs-dist";
 
 export type Kind = "Asset" | "Liability";
-export type AssetCategory = "Cash and Bank Accounts" | "Investments" | "Mortgage Investments / Mortgage Receivables" | "Loans Receivable" | "Corporate Tax Instalment Receivable" | "Other Receivables" | "Vehicles" | "Insurance Cash Value" | "Inherited Assets" | "Real Estate" | "Other Assets";
+export type AssetCategory = "Cash & Bank Accounts" | "Investments" | "Mortgage Investments / Mortgage Receivables" | "Loans Receivable" | "Corporate Tax Instalment Receivable" | "Other Receivables" | "Vehicles" | "Insurance Cash Value" | "Inherited Assets" | "Real Estate" | "Other Assets";
 export type LiabilityCategory = "Corporate Tax Payable" | "Loans Payable" | "Shareholder Advances" | "Mortgages Payable" | "Taxes Owing" | "Accounts Payable" | "Credit Cards" | "Other Liabilities";
 export type Category = AssetCategory | LiabilityCategory;
 
@@ -32,7 +32,7 @@ export function inferCategory(description: string, kind: Kind): Category {
     if (/cash surrender|cash value|policy value/.test(d)) return "Insurance Cash Value";
     if (/loan|receivable/.test(d)) return "Loans Receivable";
     if (/mortgage/.test(d)) return "Mortgage Investments / Mortgage Receivables";
-    if (/cash|chequ|saving|bank/.test(d)) return "Cash and Bank Accounts";
+    if (/cash|chequ|saving|bank/.test(d)) return "Cash & Bank Accounts";
     if (/portfolio|investment|brokerage|securit|margin/.test(d)) return "Investments";
     if (/vehicle|automobile|car\b/.test(d)) return "Vehicles";
     if (/inherit/.test(d)) return "Inherited Assets";
@@ -113,7 +113,7 @@ export function parseTabularRows(data: unknown[][], source: string): ParsedRow[]
     const result: ParsedRow[] = [];
     const cash = cashIndex >= 0 ? parseAmount(String(values[cashIndex] ?? "")) : null;
     const investments = investmentsIndex >= 0 ? parseAmount(String(values[investmentsIndex] ?? "")) : null;
-    if (cash !== null) result.push(makeRow(source, kind, holder, account, `${description} — Cash`, cash, null, "Cash and Bank Accounts"));
+    if (cash !== null) result.push(makeRow(source, kind, holder, account, `${description} — Cash`, cash, null, "Cash & Bank Accounts"));
     if (investments !== null) result.push(makeRow(source, kind, holder, account, `${description} — Investments`, investments, null, "Investments"));
     if (result.length) return result;
     const current = parseAmount(String(values[currentIndex] ?? "")); if (current === null) return [];
