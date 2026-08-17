@@ -8,6 +8,9 @@ export type PeriodValue = number | null;
 export type AccountPeriods = { current:PeriodValue; previous:PeriodValue };
 export type PositionedAmount = { value:number; centerX:number; confidence:number };
 export type PeriodColumns = { previousX:number; currentX:number };
+export type Box = { x0:number; y0:number; x1:number; y1:number };
+export type OcrToken = { text:string; confidence:number; box:Box };
+export type AccountingCandidate = PositionedAmount & { box:Box; words:OcrWord[] };
 function distance(a:number,b:number):number{return Math.abs(a-b);}
 export function assignAmountsToPeriods(amounts:PositionedAmount[],columns:PeriodColumns):AccountPeriods {
   const result:AccountPeriods={current:null,previous:null};
@@ -40,6 +43,33 @@ export function parseAccountingAmount(raw:string):number|null {
   const negative=value.includes("(")||/-/.test(value);const cleaned=value.replace(/[^\d.,]/g,"").replace(/,(?=\d{2}$)/,".").replace(/,/g,"");const number=Number(cleaned);return Number.isFinite(number)?(negative?-Math.abs(number):number):null;
 }
 
+function centerX(box:Box){return (box.x0+box.x1)/2;}
+function overlapsRow(word:OcrWord,row:Box){const middle=(word.y0+word.y1)/2;return middle>=row.y0&&middle<=row.y1;}
+
+/** Merge OCR-split accounting tokens without flattening away their coordinates. */
+export function combineAccountingWords(words:OcrWord[]):AccountingCandidate[] {
+  const sorted=[...words].sort((a,b)=>a.x0-b.x0);const candidates:AccountingCandidate[]=[];
+  for(let start=0;start<sorted.length;start++){
+    if(!/^[\s$S5()\d,.'’+\-]+$/.test(sorted[start].text))continue;
+    let raw="";let best:AccountingCandidate|undefined;
+    for(let end=start;end<Math.min(sorted.length,start+6);end++){
+      const word=sorted[end];if(!/^[\s$S5()\d,.'’+\-]+$/.test(word.text))break;
+      if(end>start&&word.x0-sorted[end-1].x1>45)break;
+      raw+=word.text;const value=parseAccountingAmount(raw);if(value===null)continue;
+      const merged=sorted.slice(start,end+1);const box={x0:merged[0].x0,y0:Math.min(...merged.map((item)=>item.y0)),x1:merged.at(-1)!.x1,y1:Math.max(...merged.map((item)=>item.y1))};
+      best={value,centerX:centerX(box),confidence:Math.min(...merged.map((item)=>item.confidence)),box,words:merged};
+    }
+    if(best){candidates.push(best);while(start+1<sorted.length&&sorted[start+1].x0<best.box.x1)start++;}
+  }
+  return candidates;
+}
+
+/** Recover amounts on a slightly displaced baseline while staying inside one visual row. */
+export function recoverRowPeriods(words:OcrWord[],row:Box,columns:PeriodColumns,tolerance:number):{periods:AccountPeriods;candidates:AccountingCandidate[]} {
+  const candidates=combineAccountingWords(words.filter((word)=>overlapsRow(word,row))).filter((candidate)=>Math.min(distance(candidate.centerX,columns.previousX),distance(candidate.centerX,columns.currentX))<=tolerance);
+  return {periods:assignAmountsToPeriods(candidates,columns),candidates};
+}
+
 function financialCategory(label:string, heading:string, negative:boolean):{kind:Kind;category:Category;holder:string;accountName:string} {
   const text=`${heading} ${label}`.toLowerCase();
   if(negative){
@@ -50,18 +80,14 @@ function financialCategory(label:string, heading:string, negative:boolean):{kind
   }
   // Explicit leaf descriptions override a stale or missed OCR section heading.
   if(/\bcibc bank/i.test(label))return {kind:"Asset",category:"Cash & Bank Accounts",holder:"CIBC Bank",accountName:label};
-  if(/receivable/i.test(label)&&!/loans? receivable/i.test(heading)){const holder=label.replace(/\s*[-–—]?\s*receivable\s*$/i,"").trim();return {kind:"Asset",category:"Loans Receivable",holder:holder||"Receivables",accountName:"Receivable"};}
+  const receivableVariant=/receiv(?:able|eble|ible|abie|ebie)/i;
+  if(receivableVariant.test(label)&&!/loans? receivable/i.test(heading)){const holder=label.replace(new RegExp(`\\s*[-–—]?\\s*${receivableVariant.source}\\s*$`,"i"),"").trim();return {kind:"Asset",category:"Loans Receivable",holder:holder||"Receivables",accountName:"Receivable"};}
   if(/real estate/.test(text))return {kind:"Asset",category:"Real Estate",holder:"Real Estate",accountName:"Real estate equity"};
   if(/investments?/.test(heading))return {kind:"Asset",category:"Investments",holder:"Investments",accountName:"Investment"};
   if(/mortgages?/.test(heading))return {kind:"Asset",category:"Mortgage Investments / Mortgage Receivables",holder:"Mortgage investments",accountName:"Mortgage investment"};
   if(/loans? receivable/.test(heading))return {kind:"Asset",category:"Loans Receivable",holder:"Loans receivable",accountName:"Loan receivable"};
   if(/corporate tax instalment/.test(text))return {kind:"Asset",category:"Corporate Tax Instalment Receivable",holder:"Corporate tax",accountName:"Corporate tax instalment receivable"};
   return {kind:"Asset",category:inferCategory(text,"Asset"),holder:heading||"No holder specified",accountName:label};
-}
-
-function lineAmount(line:OcrLine,columnX:number,maxDistance=Number.POSITIVE_INFINITY):number|null {
-  const candidates=line.words.flatMap((word,index)=>{const combinations=[word.text];if(index&&/^[$S5]$/.test(line.words[index-1].text))combinations.push(`${line.words[index-1].text} ${word.text}`);return combinations.map((text)=>({amount:parseAccountingAmount(text),distance:Math.abs((word.x0+word.x1)/2-columnX)}));}).filter((item):item is {amount:number;distance:number}=>item.amount!==null&&item.distance<=maxDistance).sort((a,b)=>a.distance-b.distance);
-  return candidates[0]?.amount??null;
 }
 
 function controlKey(heading:string){const value=heading.toLowerCase();if(/^mortgages?/.test(value))return "Mortgage Investments / Mortgage Receivables";if(/^investments?/.test(value))return "Investments";if(/^loans? receivable/.test(value))return "Loans Receivable";if(/^real estate/.test(value))return "Real Estate";return heading;}
@@ -75,15 +101,6 @@ function financialHeading(text:string):string|null {
   return null;
 }
 
-function positionedAmountsForLine(line:OcrLine):PositionedAmount[] {
-  return line.words.flatMap((word,index)=>{
-    const parsed=parseAccountingAmount(word.text);if(parsed===null)return [];
-    const before=line.words[index-1];const after=line.words[index+1];
-    const separatedParentheses=before?.text.trim()==="("||after?.text.trim()===")";
-    return [{value:separatedParentheses?-Math.abs(parsed):parsed,centerX:(word.x0+word.x1)/2,confidence:word.confidence}];
-  });
-}
-
 export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseResult {
   const lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");if(!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
   const positionedWords=words.map((word)=>({text:word.text,centerX:(word.x0+word.x1)/2,centerY:(word.y0+word.y1)/2}));
@@ -93,19 +110,20 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   const dateWords=words.filter((word)=>/(?:30[-\s]jun|31[-\s]jul|jun(?:e)?\s*30|jul(?:y)?\s*31)/i.test(word.text));
   const parseDate=(text:string)=>{const match=text.match(/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
   const previousDate=parseDate(dateWords.find((word)=>/jun/i.test(word.text))?.text??"");const currentDate=parseDate(dateWords.find((word)=>/jul/i.test(word.text))?.text??"");
-  let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
-  for(const line of lines){
-    const text=line.text.trim();const detectedHeading=financialHeading(text);if(detectedHeading&&!line.words.some((word)=>parseAccountingAmount(word.text)!==null)){heading=detectedHeading;continue;}
-    if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=lineAmount(line,previousX,columnTolerance);sourceCurrentNetWorth=lineAmount(line,currentX,columnTolerance);continue;}
+  let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();const consumed=new Set<OcrWord>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
+  for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
+    const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&!lineCandidates.length){heading=detectedHeading;continue;}
+    const height=Math.max(...line.words.map((word)=>word.y1-word.y0),12);const nextDescription=lines.slice(lineIndex+1).find((candidate)=>candidate.words.some((word)=>word.x0<previousX-columnTolerance));const lowerLimit=nextDescription?(line.y+nextDescription.y)/2:line.y+height;const rowBox={x0:0,x1:Math.max(...words.map((word)=>word.x1)),y0:line.y-height*.85,y1:Math.min(line.y+height*.85,lowerLimit-.01)};
+    const recovered=recoverRowPeriods(words.filter((word)=>!consumed.has(word)),rowBox,columns,columnTolerance);const {previous,current}=recovered.periods;
+    if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=previous;sourceCurrentNetWorth=current;continue;}
     if(/\b(?:income|fees|interest earned)\b/i.test(text))continue;
-    const amountWords=line.words.filter((word)=>parseAccountingAmount(word.text)!==null);if(!amountWords.length)continue;
-    const positionedAmounts=positionedAmountsForLine(line).filter((amount)=>Math.min(distance(amount.centerX,previousX),distance(amount.centerX,currentX))<=columnTolerance);
-    const {previous,current}=assignAmountsToPeriods(positionedAmounts,columns);if(current===null&&previous===null)continue;
-    const firstBalanceX=Math.min(...amountWords.map((word)=>word.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5()]$/.test(word.text)).map((word)=>word.text).join(" ").replace(/\b\d+(?:\.\d+)?%/g,"").replace(/\s{2,}/g," ").trim();
+    if(!recovered.candidates.length)continue;
+    const firstBalanceX=Math.min(...recovered.candidates.map((candidate)=>candidate.box.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5()]$/.test(word.text)).map((word)=>word.text).join(" ").replace(/\b\d+(?:\.\d+)?%/g,"").replace(/\s{2,}/g," ").trim();
     if(totalPattern.test(label)||(!label&&heading)){controls.set(controlKey(heading),{current,previous});continue;}
     const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
-    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||line.words.some((word)=>word.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate});
+    recovered.candidates.flatMap((candidate)=>candidate.words).forEach((word)=>consumed.add(word));
+    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate});
   }
   for(const row of rows){row.sourceCurrentNetWorth=sourceCurrentNetWorth;row.sourcePreviousNetWorth=sourcePreviousNetWorth;const control=controls.get(row.category);row.sourceCategoryControlCurrent=control?.current??null;row.sourceCategoryControlPrevious=control?.previous??null;}
   return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0};
