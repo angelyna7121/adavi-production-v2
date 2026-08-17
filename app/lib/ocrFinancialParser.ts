@@ -124,7 +124,11 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
     if(/\b(?:income|fees|interest earned)\b/i.test(text))continue;
     if(!recovered.candidates.length)continue;
     const firstBalanceX=Math.min(...recovered.candidates.map((candidate)=>candidate.box.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5()]$/.test(word.text)).map((word)=>word.text).join(" ").replace(/\b\d+(?:\.\d+)?%/g,"").replace(/\s{2,}/g," ").trim();
-    if(totalPattern.test(label)||(!label&&heading)){controls.set(controlKey(heading),{current,previous});continue;}
+    // Scanned statements often print a subtotal with no word "Total". OCR can
+    // place one copy of that subtotal in the description area; it is still a
+    // reconciliation control, never a leaf account.
+    const numericOnlyLabel=parseAccountingAmount(label)!==null;
+    if(totalPattern.test(label)||numericOnlyLabel||(!label&&heading)){controls.set(controlKey(heading),{current,previous});continue;}
     label=label.replace(receivableVariant,"receivable");const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
     recovered.candidates.flatMap((candidate)=>candidate.words).forEach((word)=>consumed.add(word));
