@@ -14,6 +14,7 @@ export type ParsedRow = {
   sourceCurrentNetWorth?: number | null; sourcePreviousNetWorth?: number | null;
   sourceCurrentDate?: string; sourcePreviousDate?: string;
   sourceCategoryControlCurrent?: number | null; sourceCategoryControlPrevious?: number | null;
+  ocrRowBox?: { x0:number; y0:number; x1:number; y1:number };
 };
 type Progress = (message: string) => void;
 
@@ -130,7 +131,7 @@ export function shouldUseOcr(embeddedRows:ParsedRow[]){return embeddedRows.lengt
 async function renderPage(page:PDFPageProxy,rotation:number){const viewport=page.getViewport({scale:4,rotation});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Canvas context unavailable");context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);await page.render({canvasContext:context,viewport,canvas,background:"#ffffff"}).promise;return canvas;}
 async function parsePdf(file: File, progress: Progress) {
   const pdfjs = await import("pdfjs-dist");
-  const { extractWordsWithBoundingBoxes, financialScore, parseOcrFinancialWords } = await import("./ocrFinancialParser");
+  const { extractWordsWithBoundingBoxes, financialScore, parseOcrFinancialWords, recoverMissingPeriodFromCrop } = await import("./ocrFinancialParser");
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf/pdf.worker.min.mjs";
   const pdf = await pdfjs.getDocument({ data:new Uint8Array(await file.arrayBuffer()) }).promise;
   const pages=[];const embeddedRows:ParsedRow[]=[];
@@ -139,9 +140,11 @@ async function parsePdf(file: File, progress: Progress) {
     if(!shouldUseOcr(embeddedRows))return embeddedRows;
     const worker=await createOcrWorker(progress);const rows:ParsedRow[]=[];
     try {
-      for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>}|undefined;
-        for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const score=financialScore(result.data.text||"",result.data.confidence||0);if(!best||score>best.score)best={score,words};}
-        if(!best?.words.length)continue;rows.push(...parseOcrFinancialWords(best.words,file.name).rows);
+      for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>;canvas:HTMLCanvasElement}|undefined;
+        for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const score=financialScore(result.data.text||"",result.data.confidence||0);if(!best||score>best.score)best={score,words,canvas};}
+        if(!best?.words.length)continue;const parsed=parseOcrFinancialWords(best.words,file.name);
+        if(parsed.periodColumns){for(const row of parsed.rows.filter((item)=>(item.current===""||item.previous===null)&&item.ocrRowBox)){progress(`Rechecking ${row.description} at higher resolution…`);const recovered=await recoverMissingPeriodFromCrop(best.canvas,row.ocrRowBox!,{current:row.current===""?null:Number(row.current),previous:row.previous},parsed.periodColumns,async(canvas)=>extractWordsWithBoundingBoxes((await worker.recognize(canvas,{}, {text:false,blocks:true})).data));row.current=recovered.current===null?"":Math.abs(recovered.current);row.previous=recovered.previous===null?null:Math.abs(recovered.previous);row.needsReview=row.current===""||row.previous===null||row.needsReview;}}
+        rows.push(...parsed.rows);
       }
     } finally { await worker.terminate(); }
     if(!rows.length)throw new Error("OCR could not find credible financial account balances in this PDF.");

@@ -1,7 +1,7 @@
 import { inferCategory, type Category, type Kind, type ParsedRow } from "./documentParser";
 
 export type OcrWord = { text:string; confidence:number; x0:number; y0:number; x1:number; y1:number };
-export type OcrParseResult = { rows:ParsedRow[]; sourceCurrentNetWorth:number|null; sourcePreviousNetWorth:number|null; averageConfidence:number };
+export type OcrParseResult = { rows:ParsedRow[]; sourceCurrentNetWorth:number|null; sourcePreviousNetWorth:number|null; averageConfidence:number; periodColumns?:PeriodColumns & { tolerance:number } };
 type OcrLine = { words:OcrWord[]; text:string; y:number };
 
 export type PeriodValue = number | null;
@@ -71,6 +71,11 @@ export function recoverRowPeriods(words:OcrWord[],row:Box,columns:PeriodColumns,
   return {periods:assignAmountsToPeriods(candidates,columns),candidates};
 }
 
+function cropAndUpscale(pageCanvas:HTMLCanvasElement,box:Box,scale=2){const canvas=document.createElement("canvas");canvas.width=Math.ceil((box.x1-box.x0)*scale);canvas.height=Math.ceil((box.y1-box.y0)*scale);const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Canvas context unavailable");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(pageCanvas,box.x0,box.y0,box.x1-box.x0,box.y1-box.y0,0,0,canvas.width,canvas.height);return canvas;}
+
+/** Retry only the visual account row when the page-level OCR missed one period. */
+export async function recoverMissingPeriodFromCrop(pageCanvas:HTMLCanvasElement,row:Box,existing:AccountPeriods,columns:PeriodColumns&{tolerance:number},recognize:(canvas:HTMLCanvasElement)=>Promise<OcrWord[]>):Promise<AccountPeriods>{if(existing.current!==null&&existing.previous!==null)return existing;const padding=16;const expanded={x0:0,x1:pageCanvas.width,y0:Math.max(0,row.y0-padding),y1:Math.min(pageCanvas.height,row.y1+padding)};const scale=2;const canvas=cropAndUpscale(pageCanvas,expanded,scale);const retryWords=(await recognize(canvas)).map((word)=>({...word,x0:word.x0/scale+expanded.x0,x1:word.x1/scale+expanded.x0,y0:word.y0/scale+expanded.y0,y1:word.y1/scale+expanded.y0}));const retry=recoverRowPeriods(retryWords,expanded,columns,columns.tolerance).periods;return {current:existing.current??retry.current,previous:existing.previous??retry.previous};}
+
 function financialCategory(label:string, heading:string, negative:boolean):{kind:Kind;category:Category;holder:string;accountName:string} {
   const text=`${heading} ${label}`.toLowerCase();
   if(negative){
@@ -123,10 +128,10 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
     label=label.replace(receivableVariant,"receivable");const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
     recovered.candidates.flatMap((candidate)=>candidate.words).forEach((word)=>consumed.add(word));
-    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate});
+    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate,ocrRowBox:rowBox});
   }
   for(const row of rows){row.sourceCurrentNetWorth=sourceCurrentNetWorth;row.sourcePreviousNetWorth=sourcePreviousNetWorth;const control=controls.get(row.category);row.sourceCategoryControlCurrent=control?.current??null;row.sourceCategoryControlPrevious=control?.previous??null;}
-  return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0};
+  return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0,periodColumns:{...columns,tolerance:columnTolerance}};
 }
 
 export function financialScore(text:string,confidence:number){const amounts=text.match(/\(?\s*\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d{2})?\s*\)?/g)?.length??0;const headings=["net worth","investments","loans receivable","mortgages","loan payable","total net worth"].filter((heading)=>text.toLowerCase().includes(heading)).length;return confidence+amounts*2+headings*10;}
