@@ -46,6 +46,11 @@ test("builds investor, section, category, holder, and account grouping", () => {
   const mortgage=groups[0].sections[0].categories.find((c)=>c.category==="Mortgage Investments / Mortgage Receivables"); assert.equal(mortgage.holders[0].holder,"Sky Mortgage Corporation"); assert.equal(mortgage.holders[0].rows.length,3); assert.equal(mortgage.total,1000000);
 });
 
+test("holder groups preserve separate current and previous totals", () => {
+  const grouped = groupReportRows([{ ...rows[0], id: "cibc-suffolk", investor: "Alex", source: "bank.csv", description: "CIBC Bank-Suffolk LP", current: 2_520_363, previous: 3_514_156, holder: "CIBC Bank", institution: "CIBC Bank", accountName: "CIBC Bank-Suffolk LP", category: "Cash & Bank Accounts" }]);
+  assert.deepEqual({ current: grouped[0].sections[0].categories[0].holders[0].total, previous: grouped[0].sections[0].categories[0].holders[0].previousTotal }, { current: 2_520_363, previous: 3_514_156 });
+});
+
 test("combines mortgage category variants into one Asset Mix entry", () => {
   const mortgageRows = [
     { ...rows[3], category: "Mortgage Investment", current: 350000 },

@@ -29,7 +29,7 @@ export function calculateAssetMix(rows: ParsedRow[]): AssetMixEntry[] {
   const totalAssets = [...totals.values()].reduce((sum, value) => sum + value, 0);
   return [...totals].map(([category, total]) => ({ category, total, percentage: totalAssets ? total / totalAssets * 100 : 0 }));
 }
-export type ReportGroup = { investor:string; sections:Array<{kind:Kind;categories:Array<{category:string;total:number;previousTotal:number;holders:Array<{holder:string;total:number;rows:ParsedRow[]}>}>}> };
+export type ReportGroup = { investor:string; sections:Array<{kind:Kind;categories:Array<{category:string;total:number;previousTotal:number;holders:Array<{holder:string;total:number;previousTotal:number;rows:ParsedRow[]}>}>}> };
 export function groupReportRows(rows: ParsedRow[]): ReportGroup[] {
   const leaves = confirmedDetailRows(rows);
   return [...new Set(leaves.map((row) => row.investor))].map((investor) => ({
@@ -49,7 +49,7 @@ export function groupReportRows(rows: ParsedRow[]): ReportGroup[] {
             previousTotal: reconcileCategory(category,financialRows,previousControl,"previous").reportedTotal,
             holders: [...new Set(categoryRows.map((row) => row.holder || "No holder specified"))].map((holder) => {
               const holderRows = categoryRows.filter((row) => (row.holder || "No holder specified") === holder);
-              return { holder, total: holderRows.reduce((sum, row) => sum + Number(row.current), 0), rows: holderRows };
+              return { holder, total: holderRows.reduce((sum, row) => sum + Number(row.current), 0), previousTotal: holderRows.reduce((sum, row) => sum + (row.previous ?? 0), 0), rows: holderRows };
             }),
           };
         }),
