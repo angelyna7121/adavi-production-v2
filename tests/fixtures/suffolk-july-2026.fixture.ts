@@ -65,6 +65,6 @@ export const suffolkMortgageLeaves = [
   ["111 Crescent Cres (JHL)", 144_444, 144_444],
   ["144 Old Orchard (JHL)", 500_000, 500_000],
   ["56 Ladylipper (JHL)", 66_667, 66_667],
-  // The source shows no previous balance for this account.
-  ["669 Cosburn Ave (JHL)", 250_000, null],
+  // The source prints a dash, which represents a zero previous balance.
+  ["669 Cosburn Ave (JHL)", 250_000, 0],
 ] as const;

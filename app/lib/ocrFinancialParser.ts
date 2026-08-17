@@ -56,7 +56,7 @@ export function combineAccountingWords(words:OcrWord[]):AccountingCandidate[] {
     for(let end=start;end<Math.min(sorted.length,start+6);end++){
       const word=sorted[end];if(!/^[\s$S5()\d,.'’+\-]+$/.test(word.text))break;
       if(end>start&&word.x0-sorted[end-1].x1>45)break;
-      raw+=word.text;const value=parseAccountingAmount(raw);if(value===null)continue;
+      raw+=word.text;const value=/^[-–—]+$/.test(raw.trim())?0:parseAccountingAmount(raw);if(value===null)continue;
       const merged=sorted.slice(start,end+1);const box={x0:merged[0].x0,y0:Math.min(...merged.map((item)=>item.y0)),x1:merged.at(-1)!.x1,y1:Math.max(...merged.map((item)=>item.y1))};
       best={value,centerX:centerX(box),confidence:Math.min(...merged.map((item)=>item.confidence)),box,words:merged};
     }
