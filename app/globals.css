@@ -106,7 +106,9 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .disclosureToggle::before { content:"▸"; margin-right:8px; }.disclosureToggle[aria-expanded="true"]::before { content:"▾"; }
 .categoryGroup > .disclosureToggle { background:#edf2f6; }.holderGroup > .disclosureToggle { background:#fafbfc; }
 .disclosureContent.collapsed { display:none; }
-.accountTable { margin:0; }.accountTable th,.accountTable td { padding-left:28px; }
+.accountTable { margin:0; table-layout:fixed; }
+.accountTable td { padding-left:28px; }
+.accountTable td:nth-child(2),.accountTable td:nth-child(3) { width:160px; }
 .consolidatedTotal { margin-top:24px; }
 
 @page { size:A4 landscape; margin:12mm; }
@@ -175,7 +177,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .summaryChange { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,.35); }
 .summaryChange strong { margin:0; font-size:18px; }
 .reportTable td:not(:first-child),.reportTable th:not(:first-child),.summary strong,.mix em,.mix strong,.categorySubtotal strong { text-align:right; font-variant-numeric:tabular-nums lining-nums; white-space:nowrap; }
-.categorySubtotal { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; padding:11px 14px; border-top:2px solid #9ba7b6; background:#f4f6f8; font-weight:900; }
+.categorySubtotal { display:grid; grid-template-columns:minmax(0,1fr) 160px 160px; gap:15px; padding:11px 14px; border-top:2px solid #9ba7b6; background:#f4f6f8; font-weight:900; }
 @media print {
   .summaryCards { grid-template-columns:repeat(3,minmax(0,1fr))!important; gap:10px; }
   .summary { padding:15px; }
@@ -191,7 +193,13 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .disclosureToggle .disclosureLabel { text-align:left; }
 .disclosureToggle .periodHeading { color:#5f6a7c; font-size:11px; letter-spacing:.05em; text-align:right; text-transform:uppercase; }
 .disclosureToggle > strong { margin:0; text-align:right; font-variant-numeric:tabular-nums lining-nums; white-space:nowrap; }
-@media (max-width:640px) { .disclosureToggle { grid-template-columns:auto minmax(0,1fr) 80px 80px; } }
+@media (max-width:640px) {
+  .disclosureToggle { grid-template-columns:auto minmax(0,1fr) 80px 80px; }
+  .categorySubtotal { grid-template-columns:minmax(0,1fr) 80px 80px; }
+  .accountTable td:nth-child(2),.accountTable td:nth-child(3) { width:80px; }
+}
 @media print {
   .disclosureToggle { grid-template-columns:auto minmax(0,1fr) 120px 120px; }
+  .categorySubtotal { grid-template-columns:minmax(0,1fr) 120px 120px; }
+  .accountTable td:nth-child(2),.accountTable td:nth-child(3) { width:120px; }
 }

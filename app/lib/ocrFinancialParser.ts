@@ -66,6 +66,24 @@ function lineAmount(line:OcrLine,columnX:number,maxDistance=Number.POSITIVE_INFI
 
 function controlKey(heading:string){const value=heading.toLowerCase();if(/^mortgages?/.test(value))return "Mortgage Investments / Mortgage Receivables";if(/^investments?/.test(value))return "Investments";if(/^loans? receivable/.test(value))return "Loans Receivable";if(/^real estate/.test(value))return "Real Estate";return heading;}
 
+function financialHeading(text:string):string|null {
+  if(totalPattern.test(text))return null;
+  const normalized=text.replace(/[^a-z\s]/gi," ").replace(/\s+/g," ").trim();
+  for(const pattern of [/corporate tax instalment/i,/loans? receivable/i,/real estate/i,/investments?/i,/mortgages?/i]){
+    const match=normalized.match(pattern);if(match)return match[0];
+  }
+  return null;
+}
+
+function positionedAmountsForLine(line:OcrLine):PositionedAmount[] {
+  return line.words.flatMap((word,index)=>{
+    const parsed=parseAccountingAmount(word.text);if(parsed===null)return [];
+    const before=line.words[index-1];const after=line.words[index+1];
+    const separatedParentheses=before?.text.trim()==="("||after?.text.trim()===")";
+    return [{value:separatedParentheses?-Math.abs(parsed):parsed,centerX:(word.x0+word.x1)/2,confidence:word.confidence}];
+  });
+}
+
 export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseResult {
   const lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");if(!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
   const positionedWords=words.map((word)=>({text:word.text,centerX:(word.x0+word.x1)/2,centerY:(word.y0+word.y1)/2}));
@@ -76,15 +94,14 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   const parseDate=(text:string)=>{const match=text.match(/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
   const previousDate=parseDate(dateWords.find((word)=>/jun/i.test(word.text))?.text??"");const currentDate=parseDate(dateWords.find((word)=>/jul/i.test(word.text))?.text??"");
   let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
-  const headingPattern=/^(real estate|investments?|loans? receivable|mortgages?|corporate tax instalment)$/i;
   for(const line of lines){
-    const text=line.text.trim();if(headingPattern.test(text)){heading=text;continue;}
+    const text=line.text.trim();const detectedHeading=financialHeading(text);if(detectedHeading&&!line.words.some((word)=>parseAccountingAmount(word.text)!==null)){heading=detectedHeading;continue;}
     if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=lineAmount(line,previousX,columnTolerance);sourceCurrentNetWorth=lineAmount(line,currentX,columnTolerance);continue;}
     if(/\b(?:income|fees|interest earned)\b/i.test(text))continue;
     const amountWords=line.words.filter((word)=>parseAccountingAmount(word.text)!==null);if(!amountWords.length)continue;
-    const positionedAmounts=amountWords.map((word)=>({value:parseAccountingAmount(word.text)!,centerX:(word.x0+word.x1)/2,confidence:word.confidence})).filter((amount)=>Math.min(distance(amount.centerX,previousX),distance(amount.centerX,currentX))<=columnTolerance);
+    const positionedAmounts=positionedAmountsForLine(line).filter((amount)=>Math.min(distance(amount.centerX,previousX),distance(amount.centerX,currentX))<=columnTolerance);
     const {previous,current}=assignAmountsToPeriods(positionedAmounts,columns);if(current===null&&previous===null)continue;
-    const firstBalanceX=Math.min(...amountWords.map((word)=>word.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5]$/.test(word.text)).map((word)=>word.text).join(" ").replace(/\b\d+(?:\.\d+)?%/g,"").replace(/\s{2,}/g," ").trim();
+    const firstBalanceX=Math.min(...amountWords.map((word)=>word.x0));let label=line.words.filter((word)=>word.x1<firstBalanceX-4&&!/^[$S5()]$/.test(word.text)).map((word)=>word.text).join(" ").replace(/\b\d+(?:\.\d+)?%/g,"").replace(/\s{2,}/g," ").trim();
     if(totalPattern.test(label)||(!label&&heading)){controls.set(controlKey(heading),{current,previous});continue;}
     const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
