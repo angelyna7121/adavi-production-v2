@@ -13,9 +13,8 @@ export type OcrToken = { text:string; confidence:number; box:Box };
 export type AccountingCandidate = PositionedAmount & { box:Box; words:OcrWord[] };
 function distance(a:number,b:number):number{return Math.abs(a-b);}
 export function assignAmountsToPeriods(amounts:PositionedAmount[],columns:PeriodColumns):AccountPeriods {
-  const result:AccountPeriods={current:null,previous:null};
-  for(const amount of amounts){const previousDistance=distance(amount.centerX,columns.previousX);const currentDistance=distance(amount.centerX,columns.currentX);if(previousDistance<currentDistance){if(result.previous===null)result.previous=amount.value;}else if(result.current===null)result.current=amount.value;}
-  return result;
+  const nearest=(period:"previous"|"current")=>amounts.map((amount)=>({amount,distance:distance(amount.centerX,columns[`${period}X`])})).filter(({amount})=>period==="previous"?distance(amount.centerX,columns.previousX)<distance(amount.centerX,columns.currentX):distance(amount.centerX,columns.currentX)<=distance(amount.centerX,columns.previousX)).sort((a,b)=>a.distance-b.distance)[0]?.amount.value??null;
+  return {current:nearest("current"),previous:nearest("previous")};
 }
 export function detectPeriodColumns(words:Array<{text:string;centerX:number;centerY:number}>):PeriodColumns {
   const normalized=words.map((word)=>({...word,text:word.text.replace(/\s*-\s*/g,"-").replace(/\s+/g," ")}));const previousHeadingWords=normalized.filter((word)=>/30[-\s]?jun[-\s]?26/i.test(word.text));const currentHeadingWords=normalized.filter((word)=>/31[-\s]?jul[-\s]?26/i.test(word.text));
@@ -100,7 +99,7 @@ function controlKey(heading:string){const value=heading.toLowerCase();if(/^mortg
 function financialHeading(text:string):string|null {
   if(totalPattern.test(text))return null;
   const normalized=text.replace(/[^a-z\s]/gi," ").replace(/\s+/g," ").trim();
-  for(const pattern of [/corporate tax instalment/i,/loans? receivable/i,/real estate/i,/investments?/i,/mortgages?/i]){
+  for(const pattern of [/^corporate tax instalment$/i,/^loans? receivable$/i,/^real estate$/i,/^investments?$/i,/^mortgages?$/i]){
     const match=normalized.match(pattern);if(match)return match[0];
   }
   return null;
@@ -117,7 +116,7 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   const previousDate=parseDate(dateWords.find((word)=>/jun/i.test(word.text))?.text??"");const currentDate=parseDate(dateWords.find((word)=>/jul/i.test(word.text))?.text??"");
   let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();const consumed=new Set<OcrWord>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
   for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
-    const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&!lineCandidates.length){heading=detectedHeading;continue;}
+    const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&(!lineCandidates.length||/^(?:loans? receivable|real estate|investments?|mortgages?)$/i.test(detectedHeading))){heading=detectedHeading;continue;}
     const height=Math.max(...line.words.map((word)=>word.y1-word.y0),12);const isDescription=(candidate:OcrLine)=>candidate.words.some((word)=>word.x0<previousX-columnTolerance&&/[a-z]/i.test(word.text));const previousDescription=[...lines.slice(0,lineIndex)].reverse().find(isDescription);const nextDescription=lines.slice(lineIndex+1).find(isDescription);const upperLimit=previousDescription?(previousDescription.y+line.y)/2:line.y-height;const lowerLimit=nextDescription?(line.y+nextDescription.y)/2:line.y+height;const rowBox={x0:0,x1:Math.max(...words.map((word)=>word.x1)),y0:Math.max(upperLimit+.01,line.y-height*1.25),y1:Math.min(lowerLimit-.01,line.y+height*1.25)};
     const recovered=recoverRowPeriods(words.filter((word)=>!consumed.has(word)),rowBox,columns,columnTolerance);const {previous,current}=recovered.periods;
     if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=previous;sourceCurrentNetWorth=current;continue;}
