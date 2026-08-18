@@ -60,6 +60,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .reviewActions { display:flex; justify-content:space-between; padding:28px 28px 0; }
 .primary:disabled { opacity:.4; cursor:not-allowed; }
 .reportArea { display:flex; flex-direction:column; gap:24px; }
+.printReport { display:none; }
 .reportReady { background:#101f34; }
 .paper { color:#172235; background:white; border-radius:8px; padding:54px; box-shadow:0 24px 100px rgba(0,0,0,.35); }
 .paperHead { display:flex; justify-content:space-between; padding-bottom:32px; border-bottom:3px solid #cfaa5a; }
@@ -118,7 +119,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .accountTable tfoot th,.accountTable tfoot td { padding-left:24px; padding-right:24px; border-top:2px solid #8492a6; font-weight:800; background:#f4f6f8; }
 .consolidatedTotal { margin-top:24px; }
 
-@page { size:A4 landscape; margin:12mm; }
+@page { size:A4 portrait; margin:12mm; }
 @media print {
   html,body,main { background:#fff!important; color:#172235!important; }
   body { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
@@ -195,3 +196,59 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .reviewTable td input + input { margin-top:6px; }
 @media (max-width:640px) { .accountTable .amountColumn { width:130px; } }
 @media print { .accountTable .amountColumn { width:150px; } }
+
+/* Explicit print pages provide deterministic portrait pagination and numbering. */
+@media print {
+  .screenReport { display:none!important; }
+  .printReport { display:block!important; visibility:visible!important; color:#172235; background:#fff; }
+  .printReport * { visibility:visible!important; }
+  .printPage { position:relative; width:100%; min-height:273mm; padding:0 0 14mm; overflow:hidden; background:#fff; break-after:page; page-break-after:always; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+  .printPage:last-child { break-after:auto; page-break-after:auto; }
+  .printLogo { display:flex; align-items:center; gap:9px; color:#0e2037; font-size:16pt; }
+  .printLogo .brandMark { width:9mm; height:9mm; font-size:12pt; }
+  .printHero { margin-top:28mm; padding-top:8mm; border-top:2px solid #d4aa51; }
+  .printHero>p { margin:0 0 4mm; color:#687488; font-size:9pt; font-weight:800; letter-spacing:.14em; text-transform:uppercase; }
+  .printHero h1 { margin:0; color:#0e2037; font-size:25pt; line-height:1.08; text-align:left; }
+  .printHero h2 { margin:4mm 0 8mm; color:#566378; font-size:15pt; text-align:left; }
+  .printHero>div { display:grid; grid-template-columns:auto auto; justify-content:start; gap:1.5mm 5mm; font-size:9pt; }
+  .printHero span { color:#768196; }.printHero strong { color:#172235; }
+  .printSummaryCards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3mm; margin-top:14mm; }
+  .printSummaryCards .summary { min-width:0; padding:4mm; border-radius:4mm; }
+  .printSummaryCards .summary h3 { font-size:8pt; }
+  .printSummaryCards .summaryPeriod { display:block; }
+  .printSummaryCards .summaryPeriod span { font-size:6.5pt; }
+  .printSummaryCards .summaryPeriod strong { margin-top:1mm; font-size:12pt; }
+  .printSummaryCards .summaryChange { display:block; }
+  .printSummaryCards .summaryChange strong { margin-top:1mm; font-size:10pt; }
+  .schedulePageHead { display:flex; align-items:flex-start; justify-content:space-between; gap:8mm; padding-bottom:4mm; border-bottom:2px solid #d4aa51; }
+  .schedulePageHead>div { text-align:right; }
+  .schedulePageHead h1 { margin:0; color:#0e2037; font-size:17pt; text-align:right; }
+  .schedulePageHead p { margin:1.5mm 0 0; color:#687488; font-size:8pt; }
+  .printSchedule { width:100%; margin-top:5mm; table-layout:fixed; border-collapse:collapse; font-size:8.5pt; }
+  .printSchedule .printAmountColumn { width:35mm; }
+  .printSchedule th,.printSchedule td { box-sizing:border-box; padding:2.2mm 3mm; border-bottom:.25mm solid #dfe4ea; }
+  .printSchedule th { color:#172235; font-weight:600; text-align:left; text-transform:none; letter-spacing:0; font-size:inherit; }
+  .printSchedule td,.printSchedule thead th:not(:first-child) { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
+  .printSchedule thead { display:table-header-group; }
+  .printSchedule thead th { padding-top:2.5mm; padding-bottom:2.5mm; color:#fff!important; background:#173f76!important; font-size:7.5pt; font-weight:800; text-transform:uppercase; }
+  .printSchedule tr { break-inside:avoid; page-break-inside:avoid; }
+  .printRow-investor th { padding-top:4mm; color:#0e2037; font-size:12pt; font-weight:900; }
+  .printRow-section th { color:#fff; background:#173f76!important; font-size:9pt; font-weight:900; text-transform:uppercase; }
+  .printRow-category th,.printRow-category td { color:#0e2037; background:#e9eef4!important; font-weight:900; }
+  .printRow-holder th,.printRow-holder td { background:#f7f8fa!important; font-weight:800; }
+  .printRow-account th { padding-left:8mm; }
+  .printRow-total th,.printRow-total td { border-top:.5mm solid #8492a6; background:#eef1f5!important; font-weight:900; }
+  .assetMixPage .schedulePageHead { margin-bottom:15mm; }
+  .printAssetMix { display:flex; flex-direction:column; gap:8mm; }
+  .printMix>div:first-child { display:grid; grid-template-columns:minmax(0,1fr) 35mm 18mm; gap:4mm; align-items:end; }
+  .printMix strong { color:#172235; font-size:10pt; }
+  .printMix span,.printMix em { color:#425169; text-align:right; font-size:9pt; font-style:normal; font-variant-numeric:tabular-nums lining-nums; }
+  .printMixTrack { height:4mm; margin-top:2mm; overflow:hidden; border:.25mm solid #aab3bf; border-radius:3mm; background:#e5e8ec!important; }
+  .printMixTrack i { display:block; height:100%; min-width:1mm; background:#d4aa51!important; }
+  .printDisclaimer { position:absolute; left:0; bottom:14mm; color:#7b8492; font-size:7.5pt; }
+  .printPageFooter { position:absolute; left:0; right:0; bottom:0; display:flex; justify-content:space-between; padding-top:3mm; border-top:.25mm solid #cfd5dc; color:#667287; font-size:8pt; }
+  .pageWatermark { position:absolute; z-index:0; left:50%; top:50%; transform:translate(-50%,-50%) rotate(-24deg); color:#17355f!important; opacity:.055; font-size:54pt; font-weight:900; white-space:nowrap; }
+  .printPage>*:not(.pageWatermark):not(.printPageFooter):not(.printDisclaimer) { position:relative; z-index:1; }
+  .printPageFooter,.printDisclaimer { z-index:1; }
+  .paidPrint .printDisclaimer { display:none; }
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 const { parseFinancialText } = await import("../app/lib/documentParser.ts");
-const { CSV_HEADERS, assignInvestor, calculateAssetMix, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows, reassignInvestor } = await import("../app/lib/reportData.ts");
+const { CSV_HEADERS, assignInvestor, calculateAssetMix, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows, paginateReportSchedule, reassignInvestor } = await import("../app/lib/reportData.ts");
 
 const statement = `ASSETS
 CIBC Bank
@@ -65,5 +65,7 @@ test("combines mortgage category variants into one Asset Mix entry", () => {
 });
 
 test("assigns and reassigns investors and rejects unnamed included rows",()=>{const unassigned={...rows[0],investor:""};assert.equal(hasUnnamedIncludedRows([unassigned]),true);assert.throws(()=>assignInvestor([unassigned],"x"," "),/required/);assert.equal(reassignInvestor(rows[0],"two","Jordan").investor,"Jordan");});
+
+test("paginates a dynamic schedule without losing or duplicating accounts",()=>{const many=Array.from({length:37},(_,index)=>({...rows[3],id:`many-${index}`,description:`Dynamic mortgage ${index+1}`,accountName:`Dynamic mortgage ${index+1}`,current:1000+index,previous:index%4?900+index:0}));const pages=paginateReportSchedule(groupReportRows(many),12);assert.ok(pages.length>1);assert.ok(pages.every((page)=>page.length<=12));const accounts=pages.flat().filter((row)=>row.level==="account");assert.equal(accounts.length,37);assert.equal(new Set(accounts.map((row)=>row.label)).size,37);assert.equal(pages.flat().filter((row)=>row.level==="total").length,1);for(const page of pages.slice(1)){assert.equal(page[0].level,"investor");assert.ok(page.some((row)=>row.level==="category"));}});
 
 test("exports exact headers and leaf accounts only",()=>{const csv=createReportCsv([...rows,{...rows[0],id:"t",description:"Total Assets",accountName:"Total Assets",current:2935282.7}]);assert.equal(csv.codePointAt(0),0xfeff);assert.ok(csv.endsWith("\r\n"));const lines=csv.slice(1).trimEnd().split("\r\n");const parse=(line)=>[...line.matchAll(/(?:^|,)(?:"((?:""|[^"])*)"|([^,]*))/g)].map((m)=>(m[1]??m[2]).replaceAll('""','"'));assert.deepEqual(parse(lines[0]),[...CSV_HEADERS]);assert.equal(lines.length,8);assert.ok(!csv.includes("Total Assets"));assert.deepEqual(parse(lines[1]).slice(0,6),["Ari Family","Asset","Cash & Bank Accounts","CIBC Bank","Bank Account","Bank Account"]);});
