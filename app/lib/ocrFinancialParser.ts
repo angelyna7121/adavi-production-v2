@@ -22,7 +22,7 @@ export function detectPeriodColumns(words:Array<{text:string;centerX:number;cent
   if(!previousHeadingWords.length||!currentHeadingWords.length)throw new Error("Could not identify previous and current balance columns");
   return {previousX:previousHeadingWords.reduce((sum,word)=>sum+word.centerX,0)/previousHeadingWords.length,currentX:currentHeadingWords.reduce((sum,word)=>sum+word.centerX,0)/currentHeadingWords.length};
 }
-export function formatPeriodAmount(value:number|null):string {if(value===null)return "N/A";const absoluteValue=Math.abs(value).toLocaleString("en-CA",{minimumFractionDigits:0,maximumFractionDigits:0});return value<0?`($${absoluteValue})`:`$${absoluteValue}`;}
+export function formatPeriodAmount(value:number|null):string {const normalized=value??0;const absoluteValue=Math.abs(normalized).toLocaleString("en-CA",{minimumFractionDigits:0,maximumFractionDigits:0});return normalized<0?`($${absoluteValue})`:`$${absoluteValue}`;}
 
 const totalPattern = /^(?:sub[ -]?total|total)(?:\s|$)/i;
 const balancePattern = /^(?:[$S5])?\(?-?\d{1,3}(?:[,.'’]\d{3})+(?:[.,]\d{2})?\)?$/;
