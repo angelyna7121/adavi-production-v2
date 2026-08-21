@@ -61,20 +61,23 @@ export function groupReportRows(rows: ParsedRow[]): ReportGroup[] {
 }
 export type PrintScheduleRow = { key:string; level:"investor"|"section"|"category"|"holder"|"account"|"total"; label:string; current?:number|null; previous?:number|null };
 /** Builds deterministic printable pages from any confirmed report hierarchy. */
-export function paginateReportSchedule(groups:ReportGroup[],capacity=20):PrintScheduleRow[][] {
+export function paginateReportSchedule(groups:ReportGroup[],capacity=28):PrintScheduleRow[][] {
   const pages:PrintScheduleRow[][]=[];let page:PrintScheduleRow[]=[];let sequence=0;
   const startPage=()=>{if(page.length)pages.push(page);page=[];};
   const add=(row:Omit<PrintScheduleRow,"key">,keepWith=0)=>{if(page.length&&page.length+1+keepWith>capacity)startPage();page.push({...row,key:`print-row-${sequence++}`});};
   for(const investor of groups)for(const section of investor.sections)for(const category of section.categories){
     if(!category.holders.some((holder)=>holder.rows.length))continue;
-    if(page.length&&page.length+4>capacity)startPage();
+    if(page.length&&page.length+5>capacity)startPage();
     add({level:"investor",label:investor.investor},2);add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},1);add({level:"category",label:category.category},1);
-    for(const holder of category.holders){
+    for(const [holderIndex,holder] of category.holders.entries()){
       if(page.length+2>capacity){startPage();add({level:"investor",label:investor.investor},3);add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},2);add({level:"category",label:`${category.category} (continued)`},1);}
       add({level:"holder",label:holder.holder,current:holder.total,previous:holder.previousTotal},1);
-      for(const account of holder.rows){if(page.length>=capacity){startPage();add({level:"investor",label:investor.investor},3);add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},2);add({level:"category",label:`${category.category} (continued)`},1);add({level:"holder",label:`${holder.holder} (continued)`,current:holder.total,previous:holder.previousTotal},1);}add({level:"account",label:account.description,current:Number(account.current),previous:account.previous});}
+      for(const [accountIndex,account] of holder.rows.entries()){
+        const isFinalAccount=holderIndex===category.holders.length-1&&accountIndex===holder.rows.length-1;
+        if(page.length+1+(isFinalAccount?1:0)>capacity){startPage();add({level:"investor",label:investor.investor},3);add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},2);add({level:"category",label:`${category.category} (continued)`},1);add({level:"holder",label:`${holder.holder} (continued)`,current:holder.total,previous:holder.previousTotal},1);}
+        add({level:"account",label:account.description,current:Number(account.current),previous:account.previous});
+      }
     }
-    if(page.length>=capacity){startPage();add({level:"investor",label:investor.investor},3);add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},2);add({level:"category",label:`${category.category} (continued)`},1);}
     add({level:"total",label:`Total ${category.category}`,current:category.total,previous:category.previousTotal});
   }
   startPage();return pages;
