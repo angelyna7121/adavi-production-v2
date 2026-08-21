@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 const { parseFinancialText } = await import("../app/lib/documentParser.ts");
-const { CSV_HEADERS, assignInvestor, calculateAssetMix, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows, paginateReportSchedule, reassignInvestor } = await import("../app/lib/reportData.ts");
+const { CSV_HEADERS, assignInvestor, calculateAssetMix, calculatePeriodTotals, confirmedDetailRows, createReportCsv, groupReportRows, hasUnnamedIncludedRows, paginateReportSchedule, reassignInvestor } = await import("../app/lib/reportData.ts");
 
 const statement = `ASSETS
 CIBC Bank
@@ -41,6 +41,8 @@ test("source totals are always excluded rather than used as fallback leaves", ()
   assert.equal(confirmedDetailRows([total]).length,0);
 });
 
+test("calculates liabilities as absolute obligations from the canonical leaf dataset",()=>{const negative={...rows.at(-1),id:"negative-liability",current:-224000,previous:-200000};assert.deepEqual(calculatePeriodTotals([...rows.slice(0,-1),negative],"current").liabilities,224000);assert.deepEqual(calculatePeriodTotals([...rows.slice(0,-1),negative],"previous").liabilities,200000);});
+
 test("builds investor, section, category, holder, and account grouping", () => {
   const groups=groupReportRows(rows); assert.equal(groups[0].investor,"Ari Family"); assert.deepEqual(groups[0].sections.map((s)=>s.kind),["Asset","Liability"]);
   const mortgage=groups[0].sections[0].categories.find((c)=>c.category==="Mortgage Investments / Mortgage Receivables"); assert.equal(mortgage.holders[0].holder,"Sky Mortgage Corporation"); assert.equal(mortgage.holders[0].rows.length,3); assert.equal(mortgage.total,1000000);
@@ -62,6 +64,7 @@ test("combines mortgage category variants into one Asset Mix entry", () => {
   assert.equal(mortgages.length, 1);
   assert.equal(mortgages[0].total, 1000000);
   assert.equal(Number(mortgages[0].percentage.toFixed(1)), 34.1);
+  assert.deepEqual(mix.map((entry) => entry.total), [...mix.map((entry) => entry.total)].sort((a, b) => b - a));
 });
 
 test("assigns and reassigns investors and rejects unnamed included rows",()=>{const unassigned={...rows[0],investor:""};assert.equal(hasUnnamedIncludedRows([unassigned]),true);assert.throws(()=>assignInvestor([unassigned],"x"," "),/required/);assert.equal(reassignInvestor(rows[0],"two","Jordan").investor,"Jordan");});
