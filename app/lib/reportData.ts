@@ -74,8 +74,12 @@ export function filterPrintableSchedulePages(pages:PrintScheduleRow[][]):PrintSc
   }
   return printable;
 }
-/** Builds deterministic printable pages from any confirmed report hierarchy. */
-export function paginateReportSchedule(groups:ReportGroup[],capacity=28):PrintScheduleRow[][] {
+/**
+ * Builds deterministic printable pages from any confirmed report hierarchy.
+ * The conservative default reserves physical A4 space for the repeated report
+ * header, table heading, wrapped descriptions, and in-flow footer.
+ */
+export function paginateReportSchedule(groups:ReportGroup[],capacity=22):PrintScheduleRow[][] {
   const pages:PrintScheduleRow[][]=[];let page:PrintScheduleRow[]=[];let sequence=0;
   const startPage=()=>{if(page.length)pages.push(page);page=[];};
   const add=(row:Omit<PrintScheduleRow,"key">,keepWith=0)=>{if(page.length&&page.length+1+keepWith>capacity)startPage();page.push({...row,key:`print-row-${sequence++}`});};
