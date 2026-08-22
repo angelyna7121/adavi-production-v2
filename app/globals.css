@@ -124,11 +124,6 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   html,body,main { background:#fff!important; color:#172235!important; }
   body { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
   body > * { visibility:hidden; }
-  .paper,.paper * { visibility:visible; }
-  .paper { position:absolute; inset:0; width:100%; margin:0; padding:0; border-radius:0; box-shadow:none; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
-  .paperHead,.summaryCards,.reportBottom,.paperFooter { break-inside:avoid; page-break-inside:avoid; }
-  .reportTable tr,.mix,.disclaimer { break-inside:avoid; page-break-inside:avoid; }
-  .reportTable thead { display:table-header-group; }
   .summary.green { background:#eef9f2!important; border:2px solid #17643a; }
   .summary.red { background:#fff2f2!important; border:2px solid #94313b; }
   .summary.gold { background:#fff8e7!important; border:2px solid #725211; }
@@ -185,13 +180,6 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   .summaryCards { grid-template-columns:repeat(3,minmax(0,1fr))!important; gap:10px; }
   .summary { padding:15px; }
   .summaryPeriod strong { font-size:16px; }
-  .paper { width:100%; max-width:none; }
-  .reportTable { min-width:0!important; table-layout:fixed; }
-
-  .statementSection h5,.accountTable thead,.accountTable .holderHeading { break-after:avoid; page-break-after:avoid; }
-  .accountTable .accountRow.collapsed { display:table-row; }
-  .accountTable tbody.collapsed { display:table-row-group; }
-  .accountTable tfoot.collapsed { display:table-footer-group; }
 }
 .reviewTable td input + input { margin-top:6px; }
 @media (max-width:640px) { .accountTable .amountColumn { width:130px; } }
@@ -202,9 +190,9 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   .screenReport { display:none!important; }
   .printReport { display:block!important; visibility:visible!important; color:#172235; background:#fff; }
   .printReport * { visibility:visible!important; }
-  .printPage { position:relative; box-sizing:border-box; width:100%; height:273mm; min-height:0; padding:0 0 14mm; overflow:visible; background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+  .printPage { position:relative; box-sizing:border-box; width:100%; height:272mm; min-height:0; padding:0 0 14mm; overflow:visible; background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
   .reportPage { break-after:page; }
-  .reportPage:last-child { break-after:auto; }
+  .reportPage:last-child { break-after:auto; page-break-after:auto; }
   .printLogo { display:block; width:42mm; height:auto; }
   .printLogo img { display:block; width:100%; height:auto; }
   .printHero { margin-top:20mm; }

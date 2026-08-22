@@ -60,6 +60,20 @@ export function groupReportRows(rows: ParsedRow[]): ReportGroup[] {
   }));
 }
 export type PrintScheduleRow = { key:string; level:"investor"|"section"|"category"|"holder"|"account"|"total"; label:string; current?:number|null; previous?:number|null };
+/** Drops header-only artifacts and keeps an orphan subtotal with the preceding account page. */
+export function filterPrintableSchedulePages(pages:PrintScheduleRow[][]):PrintScheduleRow[][] {
+  const printable:PrintScheduleRow[][]=[];
+  for(const page of pages){
+    if(page.some((row)=>row.level==="account")){printable.push(page);continue;}
+    const subtotals=page.filter((row)=>row.level==="total");
+    if(subtotals.length){
+      const previous=printable.at(-1);
+      if(!previous)throw new Error("A printable subtotal has no related account page.");
+      previous.push(...subtotals);
+    }
+  }
+  return printable;
+}
 /** Builds deterministic printable pages from any confirmed report hierarchy. */
 export function paginateReportSchedule(groups:ReportGroup[],capacity=28):PrintScheduleRow[][] {
   const pages:PrintScheduleRow[][]=[];let page:PrintScheduleRow[]=[];let sequence=0;
@@ -80,7 +94,7 @@ export function paginateReportSchedule(groups:ReportGroup[],capacity=28):PrintSc
     }
     add({level:"total",label:`Total ${category.category}`,current:category.total,previous:category.previousTotal});
   }
-  startPage();return pages;
+  startPage();return filterPrintableSchedulePages(pages);
 }
 function csvCell(value:string|number){return `"${String(value).replaceAll('"','""')}"`;}
 export function createReportCsv(rows:ParsedRow[]){const lines=[CSV_HEADERS.map(csvCell).join(",")];for(const row of confirmedDetailRows(rows).filter((r)=>r.investor.trim()))lines.push([row.investor,row.kind,row.category,row.holder,row.accountName,row.description,row.current,row.previous??"N/A",row.source].map(csvCell).join(","));return `\uFEFF${lines.join("\r\n")}\r\n`;}
