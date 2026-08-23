@@ -8,6 +8,7 @@ export type Category = AssetCategory | LiabilityCategory;
 export type ParsedRow = {
   id: string; include: boolean; investor: string; investorId?: string;
   statementId?: string; ownershipPercentage?: number;
+  rowOwnershipOverride?: number | null; manuallyCreated?: boolean;
   rawCurrent?: number | ""; rawPrevious?: number | null;
   category: Category; holder: string; accountName: string; institution: string;
   description: string; current: number | ""; previous: number | null;
