@@ -1,7 +1,14 @@
 import type { Kind, ParsedRow } from "./documentParser";
 import { calculateStatementTotals, reconcileCategory, type FinancialRow } from "./reconciliation";
 
-export const CSV_HEADERS = ["Investor", "Asset or Liability", "Category", "Holder / Entity / Institution", "Account Name / Type", "Description", "Current Value", "Previous Value", "Source File"] as const;
+export type StatementRecord = { statementId:string; investorId:string; filename:string; ownershipPercentage:number; parseStatus:"processing"|"ready"|"error"; objectUrl?:string };
+export const CSV_HEADERS = ["Investor", "Statement", "Ownership Percentage", "Raw Current Value", "Included Current Value", "Raw Previous Value", "Included Previous Value", "Type", "Category", "Institution / Account", "Description"] as const;
+export function validateOwnershipPercentage(value:number){if(!Number.isFinite(value)||value<=0||value>100)throw new Error("Ownership percentage must be greater than 0 and no more than 100.");return value;}
+export function applyOwnershipToRow(row:ParsedRow,ownershipPercentage:number):ParsedRow {const percentage=validateOwnershipPercentage(ownershipPercentage);const rawCurrent=row.rawCurrent??row.current;const rawPrevious=row.rawPrevious!==undefined?row.rawPrevious:row.previous;return {...row,ownershipPercentage:percentage,rawCurrent,rawPrevious,current:rawCurrent===""?"":rawCurrent*percentage/100,previous:rawPrevious===null?null:rawPrevious*percentage/100};}
+export function assignStatement(rows:ParsedRow[],statement:StatementRecord){return rows.map((row)=>applyOwnershipToRow({...row,statementId:statement.statementId,source:statement.filename},statement.ownershipPercentage));}
+export function setStatementOwnership(rows:ParsedRow[],statementId:string,percentage:number){return rows.map((row)=>row.statementId===statementId?applyOwnershipToRow(row,percentage):row);}
+export function removeStatementRows(rows:ParsedRow[],statementId:string){return rows.filter((row)=>row.statementId!==statementId);}
+export function removeInvestorRows(rows:ParsedRow[],investorId:string){return rows.filter((row)=>row.investorId!==investorId);}
 export function assignInvestor(rows: ParsedRow[], investorId: string, investor: string) { const name=investor.trim();if(!name)throw new Error("An investor name is required before assigning statement rows.");return rows.map((row)=>({...row,investorId,investor:name})); }
 export function reassignInvestor(row: ParsedRow, investorId: string, investor: string) { const name=investor.trim();if(!name)throw new Error("Included rows must have an investor name.");return {...row,investorId,investor:name}; }
 export function hasUnnamedIncludedRows(rows: ParsedRow[]) { return rows.some((row)=>row.include&&!row.investor.trim()); }
@@ -101,4 +108,4 @@ export function paginateReportSchedule(groups:ReportGroup[],capacity=22):PrintSc
   startPage();return filterPrintableSchedulePages(pages);
 }
 function csvCell(value:string|number){return `"${String(value).replaceAll('"','""')}"`;}
-export function createReportCsv(rows:ParsedRow[]){const lines=[CSV_HEADERS.map(csvCell).join(",")];for(const row of confirmedDetailRows(rows).filter((r)=>r.investor.trim()))lines.push([row.investor,row.kind,row.category,row.holder,row.accountName,row.description,row.current,row.previous??"N/A",row.source].map(csvCell).join(","));return `\uFEFF${lines.join("\r\n")}\r\n`;}
+export function createReportCsv(rows:ParsedRow[]){const lines=[CSV_HEADERS.map(csvCell).join(",")];for(const row of confirmedDetailRows(rows).filter((r)=>r.investor.trim()))lines.push([row.investor,row.source,row.ownershipPercentage??100,row.rawCurrent??row.current,row.current,row.rawPrevious!==undefined?(row.rawPrevious??""):(row.previous??""),row.previous??"",row.kind,row.category,[row.holder,row.accountName].filter(Boolean).join(" — "),row.description].map(csvCell).join(","));return `\uFEFF${lines.join("\r\n")}\r\n`;}
