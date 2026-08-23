@@ -110,7 +110,18 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
 
   function patchEditor(patch:Partial<Row>){setRowEditor((current)=>current?{...current,draft:{...current.draft,...patch}}:current);}
   function patchEditorRaw(period:"current"|"previous",value:number|""|null){setRowEditor((current)=>{if(!current)return current;const draft=period==="current"?{...current.draft,rawCurrent:value as number|""}:{...current.draft,rawPrevious:value as number|null};return {...current,draft:applyOwnershipToRow(draft,draft.ownershipPercentage??100)};});}
-  function patchEditorOwnership(value:number|null){try{setRowEditorError("");setRowEditor((current)=>current?{...current,draft:setRowOwnershipOverride(current.draft,value)}:current);}catch(reason){setRowEditorError(reason instanceof Error?reason.message:"Enter an ownership percentage greater than 0 and no more than 100.");}}
+  function patchEditorOwnership(value:number|null){
+    try {
+      // Validate before scheduling the React state update. Errors thrown from a
+      // state-updater callback run during React's render work and cannot be
+      // caught by the surrounding event-handler try/catch.
+      const validated = value === null ? null : validateOwnershipPercentage(value);
+      setRowEditorError("");
+      setRowEditor((current)=>current?{...current,draft:setRowOwnershipOverride(current.draft,validated)}:current);
+    } catch(reason) {
+      setRowEditorError(reason instanceof Error?reason.message:"Enter an ownership percentage greater than 0 and no more than 100.");
+    }
+  }
   function saveRowEditor(){if(!rowEditor)return;try{if(!rowEditor.draft.description.trim())throw new Error("Account / Description is required.");if(rowEditor.draft.rawCurrent==="")throw new Error("Raw Current Value is required.");const saved=setRowOwnershipOverride(rowEditor.draft,rowEditor.draft.rowOwnershipOverride??null);setRows((current)=>{if(rowEditor.mode==="add")return [...current,saved];const index=current.findIndex((row)=>row.id===rowEditor.sourceRowId);return index<0?[...current,saved]:[...current.slice(0,index+1),saved,...current.slice(index+1)];});setSelectedRowId(saved.id);setRowEditor(null);setRowEditorError("");}catch(reason){setRowEditorError(reason instanceof Error?reason.message:"Review the row before saving.");}}
 
   function update(id: string, patch: Partial<Row>) {
