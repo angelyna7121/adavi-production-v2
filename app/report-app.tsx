@@ -39,6 +39,12 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [rowEditor, setRowEditor] = useState<RowEditor | null>(null);
   const [rowEditorError, setRowEditorError] = useState("");
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchStatus, setSearchStatus] = useState("");
+  const [searchMatchCount, setSearchMatchCount] = useState(0);
+  const searchMatchesRef = useRef<HTMLElement[]>([]);
+  const searchIndexRef = useRef(-1);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const included = useMemo(() => confirmedDetailRows(rows), [rows]);
@@ -182,13 +188,59 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
+  function clearSearchHighlight() {
+    searchMatchesRef.current.forEach((element) => element.classList.remove("pageSearchMatch", "pageSearchCurrent"));
+    searchMatchesRef.current = [];
+    searchIndexRef.current = -1;
+    setSearchMatchCount(0);
+  }
+
+  function searchPage() {
+    const query = searchQuery.trim().toLocaleLowerCase("en-CA");
+    clearSearchHighlight();
+    if (!query) { setSearchStatus("Enter a word or number to search this page."); return; }
+    const candidates = Array.from(document.querySelectorAll<HTMLElement>("main h1, main h2, main h3, main h4, main h5, main h6, main p, main td, main th, main label, main input, main select, main button, main small, main strong, main span"));
+    const matches = candidates.filter((element) => {
+      if (element.closest(".pageSearchPanel") || element.offsetParent === null) return false;
+      const value = element instanceof HTMLInputElement || element instanceof HTMLSelectElement ? element.value : element.innerText;
+      return value.toLocaleLowerCase("en-CA").includes(query);
+    });
+    searchMatchesRef.current = matches;
+    setSearchMatchCount(matches.length);
+    matches.forEach((element) => element.classList.add("pageSearchMatch"));
+    if (!matches.length) { setSearchStatus(`No results for “${searchQuery.trim()}”.`); return; }
+    searchIndexRef.current = 0;
+    matches[0].classList.add("pageSearchCurrent");
+    matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    setSearchStatus(`Result 1 of ${matches.length}.`);
+  }
+
+  function nextSearchResult() {
+    const matches = searchMatchesRef.current;
+    if (!matches.length) { searchPage(); return; }
+    matches[searchIndexRef.current]?.classList.remove("pageSearchCurrent");
+    searchIndexRef.current = (searchIndexRef.current + 1) % matches.length;
+    const current = matches[searchIndexRef.current];
+    current.classList.add("pageSearchCurrent");
+    current.scrollIntoView({ behavior: "smooth", block: "center" });
+    setSearchStatus(`Result ${searchIndexRef.current + 1} of ${matches.length}.`);
+  }
+
+  function closeSearch() {
+    clearSearchHighlight();
+    setShowSearch(false);
+    setSearchStatus("");
+  }
+
   return (
     <main>
       <header className="topbar">
         <a className="brand" href="#"><span className="brandMark">ϟ</span><span>adavi.ai</span></a>
         <nav><a href="#">Dashboard</a><a className="active" href="#">Net Worth</a><a href="#">Income Strategy</a><a href="#">Reports</a></nav>
-        <button className="upgrade">♕&nbsp;&nbsp; Upgrade</button>
+        <div className="topbarActions"><button type="button" className="searchButton" aria-expanded={showSearch} aria-controls="page-search-panel" onClick={() => showSearch ? closeSearch() : setShowSearch(true)}>⌕&nbsp;&nbsp; Search</button><button className="upgrade">♕&nbsp;&nbsp; Upgrade</button></div>
       </header>
+
+      {showSearch && <form id="page-search-panel" className="pageSearchPanel" role="search" onSubmit={(event) => { event.preventDefault(); searchPage(); }}><label htmlFor="page-search-input">Search this page</label><input id="page-search-input" autoFocus type="search" inputMode="search" value={searchQuery} placeholder="Enter words or numbers" onChange={(event) => { setSearchQuery(event.target.value); clearSearchHighlight(); setSearchStatus(""); }} /><button type="submit" className="primary compactAction">Search</button><button type="button" className="secondary compactAction" disabled={!searchMatchCount} onClick={nextSearchResult}>Next result</button><button type="button" className="dialogClose" aria-label="Close search" onClick={closeSearch}>×</button><span className="pageSearchStatus" role="status" aria-live="polite">{searchStatus}</span></form>}
 
       <div className="shell">
         <section className="hero">
