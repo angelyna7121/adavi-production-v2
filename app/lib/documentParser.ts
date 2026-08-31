@@ -3,7 +3,8 @@ import type { PDFPageProxy } from "pdfjs-dist";
 export type Kind = "Asset" | "Liability";
 export type AssetCategory = "Cash & Bank Accounts" | "Investments" | "Mortgage Investments / Mortgage Receivables" | "Loans Receivable" | "Corporate Tax Instalment Receivable" | "Other Receivables" | "Vehicles" | "Insurance Cash Value" | "Inherited Assets" | "Real Estate" | "Other Assets";
 export type LiabilityCategory = "Corporate Tax Payable" | "Loans Payable" | "Shareholder Advances" | "Mortgages Payable" | "Taxes Owing" | "Accounts Payable" | "Credit Cards" | "Other Liabilities";
-export type Category = AssetCategory | LiabilityCategory;
+/** Built-in categories remain suggested, while reconciled rows may use a user-defined category. */
+export type Category = AssetCategory | LiabilityCategory | (string & {});
 
 export type ParsedRow = {
   id: string; include: boolean; investor: string; investorId?: string;
