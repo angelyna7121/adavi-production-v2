@@ -341,7 +341,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
               {!hasVerifiedPaidEntitlement && <div className="printWatermark" aria-hidden="true">adavi</div>}
               <StatementExecutive groupName={groupName} statementDate={statementDate} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={investorStatement} assetMix={assetMix} />
               <section className="screenStatementDetail" aria-labelledby="assets-liabilities-title"><StatementHeading id="assets-liabilities-title" groupName={groupName} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/><InvestorStatementTable statement={investorStatement} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/></section>
-              {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Created with adavi.ai</span><span>Educational estimates only · Not tax, legal, accounting, or investment advice</span></footer>}
+              {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Not tax, legal, accounting, or investment advice</span></footer>}
             </article>
             <PrintReport groupName={groupName} statementDate={statementDate} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={printInvestorStatement} assetMix={printAssetMix} paid={hasVerifiedPaidEntitlement} hasPartialOwnership={printRows.some((row)=>effectiveOwnershipPercentage(row)<100)} />
           </section>
@@ -365,7 +365,7 @@ function RowEditorDialog({editor,investors,statements,categories,error,onAddCate
 function PrintLogo(){return <div className="printLogo"><Image src="/adavi-logo.svg" alt="adavi" width={194} height={48} priority /></div>;}
 function printDate(value:string){return new Date(`${value}T00:00:00`).toLocaleDateString("en-CA",{month:"long",day:"numeric",year:"numeric"});}
 function ownership(value:number){return `${value.toLocaleString("en-CA",{maximumFractionDigits:2})}%`;}
-function assetsPerDollar(statement:InvestorStatement){return statement.currentShareLiabilities?`${(statement.currentShareAssets/statement.currentShareLiabilities).toFixed(2)}×`:"—";}
+function assetsPerDollar(statement:InvestorStatement){return statement.currentShareLiabilities?(statement.currentShareAssets/statement.currentShareLiabilities).toFixed(2):"—";}
 
 function StatementExecutive({groupName,statementDate,currency,currentLabel,previousLabel,statement,assetMix}:{groupName:string;statementDate:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>}){
   const change=statement.currentShareNetWorth-statement.previousShareNetWorth;
@@ -384,7 +384,7 @@ function InvestorStatementTable({statement,currentLabel,previousLabel}:{statemen
 }
 function FragmentCategory({category}:{category:InvestorStatement["sections"][number]["categories"][number]}){return <><tr className="statementCategoryRow"><th colSpan={4} scope="rowgroup">{category.category}</th></tr>{category.accounts.map((account)=><tr className="statementAccountRow" key={account.id}><th scope="row"><strong>{account.name}</strong>{account.holder&&account.holder!==account.name&&<small>{account.holder}</small>}</th><StatementValues row={account}/></tr>)}<tr className="statementSubtotalRow"><th scope="row">Total {category.category}</th><StatementValues row={category}/></tr></>;}
 
-function PrintFooter({page,total,paid}:{page:number;total:number;paid:boolean}){return <footer className="printPageFooter"><span>{paid?"":"Created with adavi.ai"}</span><span>{paid?"":"Educational estimates only · Not tax, legal, accounting, or investment advice"}</span><span>Page {page} of {total}</span></footer>;}
+function PrintFooter({page,total,paid}:{page:number;total:number;paid:boolean}){return <footer className="printPageFooter"><span>{paid?"":"Not tax, legal, accounting, or investment advice"}</span><span>Page {page} of {total}</span></footer>;}
 function PrintStatementTable({rows,currentLabel,previousLabel}:{rows:InvestorStatementPrintRow[];currentLabel:string;previousLabel:string}){return <table className="investorStatementTable printInvestorStatementTable"><StatementColgroup/><StatementTableHead currentLabel={currentLabel} previousLabel={previousLabel}/><tbody>{rows.map((row)=><tr className={`statementPrintRow statementPrint-${row.level}`} key={row.key}><th scope="row">{row.label}{row.holder&&row.holder!==row.label&&<small>{row.holder}</small>}</th><StatementValues row={row}/></tr>)}</tbody></table>;}
 function PrintReport({groupName,statementDate,currency,currentLabel,previousLabel,statement,assetMix,paid,hasPartialOwnership}:{groupName:string;statementDate:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;paid:boolean;hasPartialOwnership:boolean}){
   const schedulePages=paginateInvestorStatement(statement);const totalPages=schedulePages.length+1;const branding=paid?"paidPrint":"freePrint";
