@@ -112,3 +112,18 @@ test("excludes holdings and applies ownership once to the account-level value",(
 });
 
 test("ignores non-Wood-Gundy documents in the account-level parser",()=>{assert.deepEqual(parseWoodGundyPortfolioPages([{pageNumber:1,text:"ASSETS\nCash 100"}],"other.pdf"),[]);});
+
+test("keeps imperfect Wood Gundy candidates for review instead of rejecting the document",()=>{
+  const rows=parseWoodGundyPortfolioPages([{pageNumber:1,confidence:42,text:`CIBC Private Wealth Wood Gundy
+Portfolio Evaluation
+Account Number 451004771C
+Unclear registration label
+Total Portfolio Value $1,209,488`}],"imperfect.pdf");
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].accountNumber,"451004771C");
+  assert.equal(rows[0].current,1_209_488);
+  assert.equal(rows[0].accountName,"Unclassified investment account");
+  assert.equal(rows[0].needsReview,true);
+  assert.equal(rows[0].manuallyReviewRequired,true);
+  assert.equal(rows[0].include,true);
+});

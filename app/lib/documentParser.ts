@@ -17,6 +17,7 @@ export type ParsedRow = {
   ocrConfidence?: number; needsReview?: boolean;
   accountNumber?: string; sourcePage?: number; sourceInvestor?: string;
   sourceSubaccounts?: string[];
+  manuallyReviewRequired?: boolean; isLeafAccount?: boolean; isSourceTotal?: boolean;
   sourceCurrentNetWorth?: number | null; sourcePreviousNetWorth?: number | null;
   sourceCurrentDate?: string; sourcePreviousDate?: string;
   sourceCategoryControlCurrent?: number | null; sourceCategoryControlPrevious?: number | null;
@@ -57,19 +58,25 @@ export function inferCategory(description: string, kind: Kind): Category {
 }
 
 function makeRow(source: string, kind: Kind, holder: string, accountName: string, description: string, current: number, previous: number | null, category?: Category): ParsedRow {
-  return { id: id(), include: true, investor: "", category: category ?? inferCategory(`${accountName} ${description} ${holder}`, kind), holder, accountName, institution: holder, description, current: Math.abs(current), previous: previous === null ? null : Math.abs(previous), kind, source };
+  return { id: id(), include: true, investor: "", category: category ?? inferCategory(`${accountName} ${description} ${holder}`, kind), holder, accountName, institution: holder, description, current: Math.abs(current), previous: previous === null ? null : Math.abs(previous), kind, source, isLeafAccount:true, isSourceTotal:false };
 }
 
 export type PortfolioEvaluationPage = { text:string; pageNumber:number; confidence?:number };
 
 const woodGundyInstitution = "CIBC Private Wealth Wood Gundy";
-const woodGundyAccountNumber = /\b(\d{8,10}[A-Z]?)\b/i;
+export function findWoodGundyAccountNumber(value:string):string|null {
+  const explicit=value.match(/account\s*(?:number|n[o0]\.?|#)?\s*:?\s*([0-9OIlS][0-9OIlS\s-]{6,18}[0-9OIlS](?:\s*[A-Z])?)/i);
+  const candidates=explicit?[explicit[1]]:[...value.matchAll(/\b([0-9OIlS](?:[0-9OIlS -]*[0-9OIlS])?(?:\s*[A-Z])?)\b/gi)].map((match)=>match[1]);
+  for(const candidate of candidates){if(/[,$.%]/.test(candidate))continue;const normalized=candidate.replace(/[Oo]/g,"0").replace(/[Il]/g,"1").replace(/S/g,"5").replace(/[\s-]/g,"").toUpperCase();const digits=normalized.replace(/\D/g,"");if(digits.length>=8&&digits.length<=10&&/^\d{8,10}[A-Z]?$/.test(normalized))return normalized;}
+  return null;
+}
 
-function normalizeWoodGundyAccountType(value:string):string|null {
-  if(/\bspousal\s+(?:r\s*r\s*s\s*p|registered retirement savings plan)\b/i.test(value))return "Spousal RRSP";
-  if(/\b(?:registered retirement savings plan|r\s*r\s*s\s*p)\b/i.test(value))return "RRSP";
-  if(/\b(?:tax[- ]?free savings account|t\s*f\s*s\s*a)\b/i.test(value))return "TFSA";
-  if(/\bcash\b/i.test(value))return "Non-registered / Cash";
+export function normalizeWoodGundyAccountType(value:string):string|null {
+  const normalized=value.replace(/0/g,"O").replace(/[|1]/g,"I").replace(/[-_]+/g," ");
+  if(/\bsp[o0]usal\s+(?:r\s*r?\s*s\s*p|r\s*s\s*p|registered retirement savings plan)\b/i.test(normalized))return "Spousal RRSP";
+  if(/\b(?:registered retirement savings plan|r\s*r\s*s\s*p)\b/i.test(normalized))return "RRSP";
+  if(/\b(?:tax\s*free savings account|t\s*f\s*s\s*a)\b/i.test(normalized))return "TFSA";
+  if(/\b(?:non\s*regist(?:ered|fred)|cash(?:\s+account)?)\b/i.test(normalized))return "Non-registered / Cash";
   return null;
 }
 
@@ -93,22 +100,22 @@ export function parseWoodGundyPortfolioPages(pages:PortfolioEvaluationPage[],sou
   type Context={accountNumber:string;accountType:string;investor:string;subaccounts:Set<string>};
   const results=new Map<string,ParsedRow>();let context:Context|null=null;let investor="";
   for(const page of pages){
-    const lines=page.text.split(/\r?\n/).map((line)=>line.replace(/\s+/g," ").trim()).filter(Boolean);let inAccountDetails=false;
+    const lines=page.text.replace(/\s+(?=Account\s*(?:Number|N[o0]\.?|#))/gi,"\n").split(/\r?\n/).map((line)=>line.replace(/\s+/g," ").trim()).filter(Boolean);let inAccountDetails=false;
     for(let index=0;index<lines.length;index++){
       const line=lines[index];
       const named=line.match(/^(?:investor|client|account holder|account name)\s*:?\s*(.+)$/i);if(named&&!/number|type/i.test(named[1]))investor=cleanLabel(named[1]);
       if(/account details/i.test(line)){inAccountDetails=true;continue;}
-      const window=lines.slice(index,Math.min(lines.length,index+4)).join(" ");const numberMatch=line.match(woodGundyAccountNumber);const type=normalizeWoodGundyAccountType(window);
-      const explicitAccount=/account\s*(?:number|no\.?|#)/i.test(line);
-      if(numberMatch&&type&&(!inAccountDetails||explicitAccount)){
-        const accountNumber=numberMatch[1].toUpperCase();
-        if(!context||context.accountNumber!==accountNumber)context={accountNumber,accountType:type,investor,subaccounts:new Set()};
+      const window=lines.slice(index,Math.min(lines.length,index+5)).join(" ");const accountNumber=findWoodGundyAccountNumber(line);const type=normalizeWoodGundyAccountType(window);
+      const explicitAccount=/account\s*(?:number|n[o0]\.?|#)/i.test(line);const financialLine=/[$,%]|\b(?:total|value|income|gain|loss)\b/i.test(line);
+      if(accountNumber&&(explicitAccount||(!financialLine&&!inAccountDetails))){
+        if(!context||context.accountNumber!==accountNumber)context={accountNumber,accountType:type??"Unclassified investment account",investor,subaccounts:new Set()};else if(type)context.accountType=type;
         inAccountDetails=false;
-      }else if(inAccountDetails&&numberMatch&&context&&numberMatch[1].toUpperCase()!==context.accountNumber){context.subaccounts.add(numberMatch[1].toUpperCase());}
+      }else if(inAccountDetails&&accountNumber&&context&&accountNumber!==context.accountNumber){context.subaccounts.add(accountNumber);}
       if(!context||!/total\s+portfolio\s+value/i.test(line))continue;
       const current=portfolioValue(lines,index);if(current===null)continue;
       const confidence=page.confidence??100;const account=context;
-      results.set(account.accountNumber,{...makeRow(source,"Asset",woodGundyInstitution,account.accountType,`CIBC Wood Gundy - ${account.accountType} ${account.accountNumber}`,current,null,"Investments"),rawCurrent:current,rawPrevious:null,ownershipPercentage:100,accountNumber:account.accountNumber,sourcePage:page.pageNumber,sourceInvestor:account.investor||undefined,sourceSubaccounts:[...account.subaccounts],ocrConfidence:confidence,needsReview:confidence<70});
+      const evidence=.35+.35+(account.accountType!=="Unclassified investment account"?.2:0)+.1;const review=confidence<70||evidence<.7||account.accountType==="Unclassified investment account";
+      results.set(account.accountNumber,{...makeRow(source,"Asset",woodGundyInstitution,account.accountType,`CIBC Wood Gundy - ${account.accountType} ${account.accountNumber}`,current,null,"Investments"),rawCurrent:current,rawPrevious:null,ownershipPercentage:100,accountNumber:account.accountNumber,sourcePage:page.pageNumber,sourceInvestor:account.investor||undefined,sourceSubaccounts:[...account.subaccounts],ocrConfidence:Math.min(100,confidence*evidence),needsReview:review,manuallyReviewRequired:review});
     }
   }
   return [...results.values()];
@@ -201,15 +208,15 @@ async function parsePdf(file: File, progress: Progress) {
     if(!shouldUseOcr(embeddedRows))return embeddedRows;
     const worker=await createOcrWorker(progress);const rows:ParsedRow[]=[];const portfolioPages:PortfolioEvaluationPage[]=[];
     try {
-      for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>;canvas:HTMLCanvasElement}|undefined;
-        for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const score=financialScore(result.data.text||"",result.data.confidence||0);if(!best||score>best.score)best={score,words,canvas};}
-        if(!best?.words.length)continue;portfolioPages.push({text:reconstructOcrLines(best.words).map((line)=>line.text).join("\n"),pageNumber:index+1,confidence:best.words.reduce((sum,word)=>sum+word.confidence,0)/best.words.length});const parsed=parseOcrFinancialWords(best.words,file.name);
+      for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;text:string;confidence:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>;canvas:HTMLCanvasElement}|undefined;
+        for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const text=result.data.text||"";const score=financialScore(text,result.data.confidence||0);if(!best||score>best.score)best={score,text,confidence:result.data.confidence||0,words,canvas};}
+        if(!best||(!best.words.length&&!best.text.trim()))continue;const positionedText=best.words.length?reconstructOcrLines(best.words).map((line)=>line.text).join("\n"):"";portfolioPages.push({text:[positionedText,best.text].filter(Boolean).join("\n"),pageNumber:index+1,confidence:best.confidence});if(!best.words.length)continue;const parsed=parseOcrFinancialWords(best.words,file.name);
         if(parsed.periodColumns){for(const row of parsed.rows.filter((item)=>(item.current===""||item.previous===null)&&item.ocrRowBox)){progress(`Rechecking ${row.description} at higher resolution…`);const recovered=await recoverMissingPeriodFromCrop(best.canvas,row.ocrRowBox!,{current:row.current===""?null:Number(row.current),previous:row.previous},parsed.periodColumns,async(canvas)=>extractWordsWithBoundingBoxes((await worker.recognize(canvas,{}, {text:false,blocks:true})).data));row.current=recovered.current===null?"":Math.abs(recovered.current);row.previous=recovered.previous===null?null:Math.abs(recovered.previous);row.needsReview=row.current===""||row.previous===null||row.needsReview;}}
         rows.push(...parsed.rows);
       }
     } finally { await worker.terminate(); }
     const portfolio=parseWoodGundyPortfolioPages(portfolioPages,file.name);if(portfolio.length)return portfolio;
-    if(!rows.length)throw new Error("OCR could not find credible financial account balances in this PDF.");
+    if(!rows.length)throw new Error("OCR completed, but no account candidates were found. The statement remains available for manual review.");
     return rows;
   } finally { await pdf.destroy(); }
 }
