@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-const { parseDocument, parseFinancialText, parseTabularRows } = await import("../app/lib/documentParser.ts");
+const { parseDocument, parseFinancialText, parseTabularRows, parseWoodGundyPortfolioPages } = await import("../app/lib/documentParser.ts");
+const { applyOwnershipToRow } = await import("../app/lib/reportData.ts");
+const { woodGundyExpectedAccounts, woodGundyPortfolioPages } = await import("./fixtures/cibc-wood-gundy.fixture.ts");
 
 test("extracts numeric leaves only beneath assets and liabilities and rejects junk", () => {
   const rows = parseFinancialText(`Statement of Financial Position
@@ -82,3 +84,31 @@ test("enforces limits and rejects unsupported formats", async () => {
   await assert.rejects(() => parseDocument({ name: "large.csv", size: 10 * 1024 * 1024 + 1 }, () => {}), /exceeds the 10 MB limit/);
   await assert.rejects(() => parseDocument({ name: "statement.docx", size: 100 }, () => {}), /not a supported statement format/);
 });
+
+test("extracts one Wood Gundy asset per account from Total Portfolio Value", () => {
+  const rows=parseWoodGundyPortfolioPages(woodGundyPortfolioPages,"Portfolio Evaluation.pdf");
+  assert.equal(rows.length,7);
+  assert.deepEqual(rows.map((row)=>[row.accountNumber,row.accountName,row.current]),woodGundyExpectedAccounts);
+  assert.equal(rows.reduce((sum,row)=>sum+row.current,0),4_213_113);
+  for(const row of rows){
+    assert.equal(row.kind,"Asset");assert.equal(row.category,"Investments");assert.equal(row.institution,"CIBC Private Wealth Wood Gundy");assert.equal(row.ownershipPercentage,100);assert.equal(row.rawCurrent,row.current);assert.equal(row.previous,null);assert.match(row.description,new RegExp(`${row.accountName} ${row.accountNumber}$`));
+  }
+});
+
+test("keeps multi-page accounts and currency subaccounts at the consolidated account level",()=>{
+  const rows=parseWoodGundyPortfolioPages(woodGundyPortfolioPages,"Portfolio Evaluation.pdf");
+  assert.equal(rows.filter((row)=>row.accountName==="Spousal RRSP").length,2);
+  assert.equal(rows.filter((row)=>row.accountName==="RRSP").length,2);
+  const continuation=rows.find((row)=>row.accountNumber==="551193331C");assert.equal(continuation.current,451_063);assert.equal(continuation.sourcePage,6);
+  const consolidated=rows.find((row)=>row.accountNumber==="45100480");assert.deepEqual(consolidated.sourceSubaccounts,["451004801C","451004801U"]);assert.equal(consolidated.current,1_451_153);
+  assert.ok(!rows.some((row)=>["451004801C","451004801U"].includes(row.accountNumber)));
+});
+
+test("excludes holdings and applies ownership once to the account-level value",()=>{
+  const rows=parseWoodGundyPortfolioPages(woodGundyPortfolioPages,"Portfolio Evaluation.pdf");
+  assert.ok(!rows.some((row)=>/fund|shares|bond|interest|dividend|total equity|fixed income/i.test(row.description)));
+  const included=applyOwnershipToRow(rows[0],50);assert.equal(included.rawCurrent,1_209_488);assert.equal(included.current,604_744);
+  assert.equal(applyOwnershipToRow(included,25).current,302_372);
+});
+
+test("ignores non-Wood-Gundy documents in the account-level parser",()=>{assert.deepEqual(parseWoodGundyPortfolioPages([{pageNumber:1,text:"ASSETS\nCash 100"}],"other.pdf"),[]);});

@@ -15,6 +15,8 @@ export type ParsedRow = {
   description: string; current: number | ""; previous: number | null;
   kind: Kind; source: string;
   ocrConfidence?: number; needsReview?: boolean;
+  accountNumber?: string; sourcePage?: number; sourceInvestor?: string;
+  sourceSubaccounts?: string[];
   sourceCurrentNetWorth?: number | null; sourcePreviousNetWorth?: number | null;
   sourceCurrentDate?: string; sourcePreviousDate?: string;
   sourceCategoryControlCurrent?: number | null; sourceCategoryControlPrevious?: number | null;
@@ -56,6 +58,60 @@ export function inferCategory(description: string, kind: Kind): Category {
 
 function makeRow(source: string, kind: Kind, holder: string, accountName: string, description: string, current: number, previous: number | null, category?: Category): ParsedRow {
   return { id: id(), include: true, investor: "", category: category ?? inferCategory(`${accountName} ${description} ${holder}`, kind), holder, accountName, institution: holder, description, current: Math.abs(current), previous: previous === null ? null : Math.abs(previous), kind, source };
+}
+
+export type PortfolioEvaluationPage = { text:string; pageNumber:number; confidence?:number };
+
+const woodGundyInstitution = "CIBC Private Wealth Wood Gundy";
+const woodGundyAccountNumber = /\b(\d{8,10}[A-Z]?)\b/i;
+
+function normalizeWoodGundyAccountType(value:string):string|null {
+  if(/\bspousal\s+(?:r\s*r\s*s\s*p|registered retirement savings plan)\b/i.test(value))return "Spousal RRSP";
+  if(/\b(?:registered retirement savings plan|r\s*r\s*s\s*p)\b/i.test(value))return "RRSP";
+  if(/\b(?:tax[- ]?free savings account|t\s*f\s*s\s*a)\b/i.test(value))return "TFSA";
+  if(/\bcash\b/i.test(value))return "Non-registered / Cash";
+  return null;
+}
+
+function portfolioValue(lines:string[],index:number):number|null {
+  for(let offset=0;offset<3;offset++){
+    const candidate=lines[index+offset]??"";const segment=offset===0?(candidate.split(/total\s+portfolio\s+value/i)[1]??""):candidate;
+    const amounts=[...segment.matchAll(/(?:CAD|USD|\$)?\s*\(?\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?\)?/gi)].map((match)=>parseAmount(match[0])).filter((value):value is number=>value!==null);
+    if(amounts.length)return amounts.at(-1)!;
+  }
+  return null;
+}
+
+/**
+ * Portfolio Evaluation reports are account summaries. Their final Total
+ * Portfolio Value is authoritative; security holdings and allocation totals
+ * are deliberately retained only in the source document.
+ */
+export function parseWoodGundyPortfolioPages(pages:PortfolioEvaluationPage[],source:string):ParsedRow[] {
+  const documentText=pages.map((page)=>page.text).join("\n");
+  if(!/(?:CIBC\s+Private\s+Wealth|Wood\s+Gundy)/i.test(documentText)||!/Portfolio\s+Evaluation/i.test(documentText))return [];
+  type Context={accountNumber:string;accountType:string;investor:string;subaccounts:Set<string>};
+  const results=new Map<string,ParsedRow>();let context:Context|null=null;let investor="";
+  for(const page of pages){
+    const lines=page.text.split(/\r?\n/).map((line)=>line.replace(/\s+/g," ").trim()).filter(Boolean);let inAccountDetails=false;
+    for(let index=0;index<lines.length;index++){
+      const line=lines[index];
+      const named=line.match(/^(?:investor|client|account holder|account name)\s*:?\s*(.+)$/i);if(named&&!/number|type/i.test(named[1]))investor=cleanLabel(named[1]);
+      if(/account details/i.test(line)){inAccountDetails=true;continue;}
+      const window=lines.slice(index,Math.min(lines.length,index+4)).join(" ");const numberMatch=line.match(woodGundyAccountNumber);const type=normalizeWoodGundyAccountType(window);
+      const explicitAccount=/account\s*(?:number|no\.?|#)/i.test(line);
+      if(numberMatch&&type&&(!inAccountDetails||explicitAccount)){
+        const accountNumber=numberMatch[1].toUpperCase();
+        if(!context||context.accountNumber!==accountNumber)context={accountNumber,accountType:type,investor,subaccounts:new Set()};
+        inAccountDetails=false;
+      }else if(inAccountDetails&&numberMatch&&context&&numberMatch[1].toUpperCase()!==context.accountNumber){context.subaccounts.add(numberMatch[1].toUpperCase());}
+      if(!context||!/total\s+portfolio\s+value/i.test(line))continue;
+      const current=portfolioValue(lines,index);if(current===null)continue;
+      const confidence=page.confidence??100;const account=context;
+      results.set(account.accountNumber,{...makeRow(source,"Asset",woodGundyInstitution,account.accountType,`CIBC Wood Gundy - ${account.accountType} ${account.accountNumber}`,current,null,"Investments"),rawCurrent:current,rawPrevious:null,ownershipPercentage:100,accountNumber:account.accountNumber,sourcePage:page.pageNumber,sourceInvestor:account.investor||undefined,sourceSubaccounts:[...account.subaccounts],ocrConfidence:confidence,needsReview:confidence<70});
+    }
+  }
+  return [...results.values()];
 }
 
 /** Parses section-aware statement text. Numeric rows outside ASSETS/LIABILITIES are deliberately ignored. */
@@ -129,28 +185,30 @@ export function parseTabularRows(data: unknown[][], source: string): ParsedRow[]
 
 async function parseSpreadsheet(file: File) { const XLSX = await import("xlsx"); const book = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false }); return book.SheetNames.flatMap((name) => parseTabularRows(XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, defval: "" }), file.name)); }
 async function createOcrWorker(progress: Progress) { const { createWorker } = await import("tesseract.js"); return createWorker("eng", 1, { workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang", logger: (m) => { if (m.status === "recognizing text") progress(`Reading scan… ${Math.round((m.progress || 0) * 100)}%`); } }); }
-async function parseImage(file: File, progress: Progress) { const worker = await createOcrWorker(progress); try { return parseFinancialText((await worker.recognize(file)).data.text, file.name); } finally { await worker.terminate(); } }
+async function parseImage(file: File, progress: Progress) { const worker = await createOcrWorker(progress); try { const result=await worker.recognize(file);const portfolio=parseWoodGundyPortfolioPages([{text:result.data.text,pageNumber:1,confidence:result.data.confidence}],file.name);return portfolio.length?portfolio:parseFinancialText(result.data.text,file.name); } finally { await worker.terminate(); } }
 export function rotationCandidates(baseRotation:number){return [0,90,180,270].map((extra)=>(baseRotation+extra)%360);}
 export function shouldUseOcr(embeddedRows:ParsedRow[]){return embeddedRows.length===0;}
 async function renderPage(page:PDFPageProxy,rotation:number){const viewport=page.getViewport({scale:4,rotation});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Canvas context unavailable");context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);await page.render({canvasContext:context,viewport,canvas,background:"#ffffff"}).promise;return canvas;}
 async function parsePdf(file: File, progress: Progress) {
   const pdfjs = await import("pdfjs-dist");
-  const { extractWordsWithBoundingBoxes, financialScore, parseOcrFinancialWords, recoverMissingPeriodFromCrop } = await import("./ocrFinancialParser");
+  const { extractWordsWithBoundingBoxes, financialScore, parseOcrFinancialWords, reconstructOcrLines, recoverMissingPeriodFromCrop } = await import("./ocrFinancialParser");
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf/pdf.worker.min.mjs";
   const pdf = await pdfjs.getDocument({ data:new Uint8Array(await file.arrayBuffer()) }).promise;
-  const pages=[];const embeddedRows:ParsedRow[]=[];
+  const pages=[];const embeddedRows:ParsedRow[]=[];const embeddedPages:PortfolioEvaluationPage[]=[];
   try {
-    for(let n=1;n<=pdf.numPages;n++){progress(`Reading PDF text page ${n} of ${pdf.numPages}…`);const page=await pdf.getPage(n);pages.push(page);const content=await page.getTextContent();const text=content.items.map((item)=>"str" in item?`${item.str}${"hasEOL" in item&&item.hasEOL?"\n":" "}`:"").join("");embeddedRows.push(...parseFinancialText(text,file.name));}
+    for(let n=1;n<=pdf.numPages;n++){progress(`Reading PDF text page ${n} of ${pdf.numPages}…`);const page=await pdf.getPage(n);pages.push(page);const content=await page.getTextContent();const text=content.items.map((item)=>"str" in item?`${item.str}${"hasEOL" in item&&item.hasEOL?"\n":" "}`:"").join("");embeddedPages.push({text,pageNumber:n,confidence:100});embeddedRows.push(...parseFinancialText(text,file.name));}
+    const embeddedPortfolio=parseWoodGundyPortfolioPages(embeddedPages,file.name);if(embeddedPortfolio.length)return embeddedPortfolio;
     if(!shouldUseOcr(embeddedRows))return embeddedRows;
-    const worker=await createOcrWorker(progress);const rows:ParsedRow[]=[];
+    const worker=await createOcrWorker(progress);const rows:ParsedRow[]=[];const portfolioPages:PortfolioEvaluationPage[]=[];
     try {
       for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>;canvas:HTMLCanvasElement}|undefined;
         for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const score=financialScore(result.data.text||"",result.data.confidence||0);if(!best||score>best.score)best={score,words,canvas};}
-        if(!best?.words.length)continue;const parsed=parseOcrFinancialWords(best.words,file.name);
+        if(!best?.words.length)continue;portfolioPages.push({text:reconstructOcrLines(best.words).map((line)=>line.text).join("\n"),pageNumber:index+1,confidence:best.words.reduce((sum,word)=>sum+word.confidence,0)/best.words.length});const parsed=parseOcrFinancialWords(best.words,file.name);
         if(parsed.periodColumns){for(const row of parsed.rows.filter((item)=>(item.current===""||item.previous===null)&&item.ocrRowBox)){progress(`Rechecking ${row.description} at higher resolution…`);const recovered=await recoverMissingPeriodFromCrop(best.canvas,row.ocrRowBox!,{current:row.current===""?null:Number(row.current),previous:row.previous},parsed.periodColumns,async(canvas)=>extractWordsWithBoundingBoxes((await worker.recognize(canvas,{}, {text:false,blocks:true})).data));row.current=recovered.current===null?"":Math.abs(recovered.current);row.previous=recovered.previous===null?null:Math.abs(recovered.previous);row.needsReview=row.current===""||row.previous===null||row.needsReview;}}
         rows.push(...parsed.rows);
       }
     } finally { await worker.terminate(); }
+    const portfolio=parseWoodGundyPortfolioPages(portfolioPages,file.name);if(portfolio.length)return portfolio;
     if(!rows.length)throw new Error("OCR could not find credible financial account balances in this PDF.");
     return rows;
   } finally { await pdf.destroy(); }
