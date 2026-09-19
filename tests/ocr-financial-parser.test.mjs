@@ -22,6 +22,25 @@ test("uses the supplied control fixture calculations exactly",()=>{assert.equal(
 test("implements the supplied leaf and category reconciliation algorithm",()=>{const rows=[{description:"a",category:"Investments",type:"asset",current:935445,previous:935445,isSummary:false,sourceOrder:0},{description:"b",category:"Investments",type:"asset",current:3034311,previous:3034311,isSummary:false,sourceOrder:1},{description:"total",category:"Investments",type:"asset",current:3969755,previous:3969755,isSummary:true,sourceOrder:2}];assert.equal(sumLeafRows(rows,"current"),3969756);const category=reconcileCategory("Investments",rows,3969755,"current");assert.deepEqual(category,{category:"Investments",detailTotal:3969756,sourceControlTotal:3969755,reportedTotal:3969755,difference:1,status:"minor-source-difference"});assert.deepEqual(calculateStatementTotals([category],[]),{assets:3969755,liabilities:0,netWorth:3969755});});
 test("handles rotation, OCR fallback, and accounting-number safeguards",()=>{assert.deepEqual(rotationCandidates(270),[270,0,90,180]);assert.equal(shouldUseOcr([]),true);assert.equal(parseAccountingAmount("$ (2,280,517)"),-2280517);assert.equal(parseAccountingAmount("1177"),null);assert.equal(parseAccountingAmount("37.50%"),null);});
 test("does not abort a single-period OCR document that mentions net worth",()=>{const result=parseOcrFinancialWords([{text:"NET",confidence:62,x0:20,y0:20,x1:55,y1:36},{text:"WORTH",confidence:62,x0:60,y0:20,x1:110,y1:36},{text:"Total",confidence:62,x0:20,y0:60,x1:60,y1:76},{text:"Portfolio",confidence:62,x0:65,y0:60,x1:130,y1:76},{text:"Value",confidence:62,x0:135,y0:60,x1:175,y1:76},{text:"$1,209,488",confidence:62,x0:400,y0:60,x1:490,y1:76}],"portfolio.pdf");assert.deepEqual(result.rows,[]);assert.equal(result.averageConfidence,62);});
+test("detects dynamic EQUITY comparative columns across intervening valuation columns",()=>{assert.deepEqual(detectPeriodColumns([{text:"August 31, 2026",centerX:100,centerY:20},{text:"EQUITY",centerX:500,centerY:80},{text:"31-Jul-26",centerX:500,centerY:100},{text:"FAIR MARKET VALUE",centerX:650,centerY:80},{text:"PROPERTY MORTGAGE",centerX:760,centerY:80},{text:"NET VALUE",centerX:840,centerY:80},{text:"EQUITY",centerX:950,centerY:80},{text:"31-Aug-26",centerX:950,centerY:100}]),{previousX:500,currentX:950});});
+test("maps July and August independently and reports rather than forces reconciliation",()=>{
+  const august=words.map((word)=>{
+    if(word.text==="30-Jun-26")return {...word,text:"31-Jul-26"};
+    if(word.text==="31-Jul-26")return {...word,text:"31-Aug-26"};
+    if(word.text==="16,319,426")return {...word,text:"16,319,323"};
+    if(word.text==="16,319,323")return {...word,text:"15,533,188"};
+    return {...word};
+  });
+  const result=parseOcrFinancialWords(august,"suffolk-august.pdf");
+  assert.equal(result.rows[0].sourcePreviousDate,"2026-07-31");
+  assert.equal(result.rows[0].sourceCurrentDate,"2026-08-31");
+  assert.deepEqual([result.rows[0].previous,result.rows[0].current],[300000,300000]);
+  const reconciliation=calculateReconciliation(confirmedDetailRows(result.rows));
+  assert.equal(reconciliation.source,15_533_188);
+  assert.equal(reconciliation.matches,false);
+  assert.notEqual(reconciliation.difference,0);
+  assert.ok(!result.rows.some((row)=>/total net worth/i.test(row.description)));
+});
 test("does not omit the opening property and investment leaves",()=>{assert.deepEqual(leaves.slice(0,3).map((row)=>row.description),["1177 Yonge St., Toronto","Kingsberg Plaza (6 Plazas)","Suffolk LP"]);assert.deepEqual([leaves[0].previous,leaves[0].current],[300000,300000]);assert.ok(!leaves.some((row)=>row.current===800000));assert.notEqual(leaves.filter((row)=>row.category==="Investments")[0].description,"Suffolk LP");});
 test("keeps banks and general receivables out of mortgages",()=>{for(const description of ["CIBC Bank","CIBC Bank-Suffolk LP","Suffolk LP - receivable"]){const row=leaves.find((item)=>item.description===description);assert.ok(row);assert.notEqual(row.category,"Mortgage Investments / Mortgage Receivables");}assert.equal(leaves.find((row)=>row.description==="CIBC Bank-Suffolk LP").previous,3514156);});
 test("retains an unlabeled numeric loans subtotal only as a reconciliation control",()=>{const loans=leaves.filter((row)=>row.category==="Loans Receivable"&&row.description!=="Suffolk LP - receivable");assert.equal(loans.length,6);assert.ok(!leaves.some((row)=>parseAccountingAmount(row.description)!==null));assert.equal(loans[0].sourceCategoryControlCurrent,3781300);assert.equal(loans[0].sourceCategoryControlPrevious,3781300);});

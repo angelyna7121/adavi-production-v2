@@ -17,9 +17,18 @@ export function assignAmountsToPeriods(amounts:PositionedAmount[],columns:Period
   return {current:nearest("current"),previous:nearest("previous")};
 }
 export function detectPeriodColumns(words:Array<{text:string;centerX:number;centerY:number}>):PeriodColumns {
-  const normalized=words.map((word)=>({...word,text:word.text.replace(/\s*-\s*/g,"-").replace(/\s+/g," ")}));const previousHeadingWords=normalized.filter((word)=>/30[-\s]?jun[-\s]?26/i.test(word.text));const currentHeadingWords=normalized.filter((word)=>/31[-\s]?jul[-\s]?26/i.test(word.text));
-  if(!previousHeadingWords.length||!currentHeadingWords.length)throw new Error("Could not identify previous and current balance columns");
-  return {previousX:previousHeadingWords.reduce((sum,word)=>sum+word.centerX,0)/previousHeadingWords.length,currentX:currentHeadingWords.reduce((sum,word)=>sum+word.centerX,0)/currentHeadingWords.length};
+  const normalized=words.map((word)=>({...word,text:word.text.replace(/\s*-\s*/g,"-").replace(/\s+/g," ")}));
+  // Financial-position statements label the authoritative comparative columns
+  // with EQUITY. Other valuation columns can sit between them, so the two
+  // EQUITY x-coordinates are more reliable than the first two dates/numbers.
+  const equity=normalized.filter((word)=>/^equity$/i.test(word.text)).sort((a,b)=>a.centerX-b.centerX);
+  if(equity.length>=2&&equity.at(-1)!.centerX-equity[0].centerX>50)return {previousX:equity[0].centerX,currentX:equity.at(-1)!.centerX};
+  const datePattern=/\b(?:\d{1,2}[-\s](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s]\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4})\b/i;
+  const dates=normalized.filter((word)=>datePattern.test(word.text)).sort((a,b)=>a.centerX-b.centerX);
+  if(dates.length<2)throw new Error("Could not identify previous and current balance columns");
+  // A statement date normally appears at the far left; the two rightmost dates
+  // are the previous/current table headings.
+  return {previousX:dates.at(-2)!.centerX,currentX:dates.at(-1)!.centerX};
 }
 export function formatPeriodAmount(value:number|null):string {const normalized=value??0;const absoluteValue=Math.abs(normalized).toLocaleString("en-CA",{minimumFractionDigits:0,maximumFractionDigits:0});return normalized<0?`($${absoluteValue})`:`$${absoluteValue}`;}
 
@@ -122,9 +131,11 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
     }
   }
   const {previousX,currentX}=columns;const columnTolerance=Math.max(40,Math.abs(currentX-previousX)*.22);
-  const dateWords=words.filter((word)=>/(?:30[-\s]jun|31[-\s]jul|jun(?:e)?\s*30|jul(?:y)?\s*31)/i.test(word.text));
-  const parseDate=(text:string)=>{const match=text.match(/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
-  const previousDate=parseDate(dateWords.find((word)=>/jun/i.test(word.text))?.text??"");const currentDate=parseDate(dateWords.find((word)=>/jul/i.test(word.text))?.text??"");
+  const datePattern=/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i;
+  const dateWords=[...positionedWords,...positionedLines].filter((word)=>datePattern.test(word.text));
+  const parseDate=(text:string)=>{const match=text.match(datePattern);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
+  const nearestDate=(x:number)=>dateWords.map((word)=>({word,distance:Math.abs(word.centerX-x)})).sort((a,b)=>a.distance-b.distance)[0]?.word.text??"";
+  const previousDate=parseDate(nearestDate(previousX));const currentDate=parseDate(nearestDate(currentX));
   let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();const consumed=new Set<OcrWord>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
   for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
     const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&(!lineCandidates.length||/^(?:loans? receivable|real estate|investments?|mortgages?)$/i.test(detectedHeading))){heading=detectedHeading;continue;}
@@ -142,7 +153,8 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
     label=label.replace(receivableVariant,"receivable");const rawCurrent=current??0;if(label.length<3&&rawCurrent<0&&lastDescription)label=`${lastDescription} payable / offset`;if(label.length<3||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,rawCurrent<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
     recovered.candidates.flatMap((candidate)=>candidate.words).forEach((word)=>consumed.add(word));
-    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate,ocrRowBox:rowBox});
+    const ambiguousTax=/corporate tax instalment/i.test(`${heading} ${label}`);
+    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:Math.abs(rawCurrent),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:ambiguousTax||confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate,ocrRowBox:rowBox});
   }
   for(const row of rows){row.sourceCurrentNetWorth=sourceCurrentNetWorth;row.sourcePreviousNetWorth=sourcePreviousNetWorth;const control=controls.get(row.category);row.sourceCategoryControlCurrent=control?.current??null;row.sourceCategoryControlPrevious=control?.previous??null;}
   return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0,periodColumns:{...columns,tolerance:columnTolerance}};
