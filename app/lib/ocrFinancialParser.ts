@@ -109,7 +109,18 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   const lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");if(!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
   const positionedWords=words.map((word)=>({text:word.text,centerX:(word.x0+word.x1)/2,centerY:(word.y0+word.y1)/2}));
   const positionedLines=lines.map((line)=>{const dateParts=line.words.filter((word)=>!/^equity$/i.test(word.text));return {text:dateParts.map((word)=>word.text).join(" "),centerX:dateParts.reduce((sum,word)=>sum+(word.x0+word.x1)/2,0)/Math.max(1,dateParts.length),centerY:line.y};});
-  let columns:PeriodColumns;try{columns=detectPeriodColumns(positionedWords);}catch{columns=detectPeriodColumns(positionedLines);}
+  let columns:PeriodColumns;
+  try{columns=detectPeriodColumns(positionedWords);}
+  catch{
+    try{columns=detectPeriodColumns(positionedLines);}
+    catch{
+      // This parser handles two-period net-worth tables only. A portfolio or
+      // another single-period statement may legitimately contain "net worth"
+      // without Previous/Current headings; let its specialized parser inspect
+      // the OCR result instead of aborting the complete PDF pipeline.
+      return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0};
+    }
+  }
   const {previousX,currentX}=columns;const columnTolerance=Math.max(40,Math.abs(currentX-previousX)*.22);
   const dateWords=words.filter((word)=>/(?:30[-\s]jun|31[-\s]jul|jun(?:e)?\s*30|jul(?:y)?\s*31)/i.test(word.text));
   const parseDate=(text:string)=>{const match=text.match(/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
