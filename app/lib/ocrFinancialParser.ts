@@ -100,9 +100,19 @@ export function combineAccountingWords(words:OcrWord[]):AccountingCandidate[] {
 }
 
 /** Recover amounts on a slightly displaced baseline while staying inside one visual row. */
-export function recoverRowPeriods(words:OcrWord[],row:Box,columns:PeriodColumns,tolerance:number):{periods:AccountPeriods;candidates:AccountingCandidate[]} {
+export function recoverRowPeriods(words:OcrWord[],row:Box,columns:PeriodColumns,tolerance:number,anchorY=(row.y0+row.y1)/2):{periods:AccountPeriods;candidates:AccountingCandidate[]} {
   const candidates=combineAccountingWords(words.filter((word)=>overlapsRow(word,row))).filter((candidate)=>Math.min(distance(candidate.centerX,columns.previousX),distance(candidate.centerX,columns.currentX))<=tolerance);
-  return {periods:assignAmountsToPeriods(candidates,columns),candidates};
+  // A leaf and its following printed subtotal can share a tight vertical band.
+  // Choose the candidate nearest the description baseline before considering
+  // horizontal distance, so the subtotal remains a control rather than
+  // replacing the final leaf value.
+  const nearest=(period:"previous"|"current")=>candidates
+    .filter((candidate)=>period==="previous"?distance(candidate.centerX,columns.previousX)<distance(candidate.centerX,columns.currentX):distance(candidate.centerX,columns.currentX)<=distance(candidate.centerX,columns.previousX))
+    .map((candidate)=>({candidate,vertical:distance((candidate.box.y0+candidate.box.y1)/2,anchorY),horizontal:distance(candidate.centerX,columns[`${period}X`])}))
+    .sort((a,b)=>a.vertical-b.vertical||a.horizontal-b.horizontal)[0]?.candidate;
+  const current=nearest("current"),previous=nearest("previous");
+  const selected=[previous,current].filter((candidate):candidate is AccountingCandidate=>Boolean(candidate));
+  return {periods:{current:current?.value??null,previous:previous?.value??null},candidates:selected};
 }
 
 function cropAndUpscale(pageCanvas:HTMLCanvasElement,box:Box,scale=2){const canvas=document.createElement("canvas");canvas.width=Math.ceil((box.x1-box.x0)*scale);canvas.height=Math.ceil((box.y1-box.y0)*scale);const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Canvas context unavailable");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(pageCanvas,box.x0,box.y0,box.x1-box.x0,box.y1-box.y0,0,0,canvas.width,canvas.height);return canvas;}
@@ -168,7 +178,7 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
     const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&(!lineCandidates.length||/^(?:loans? receivable|real estate|investments?|mortgages?)$/i.test(detectedHeading))){heading=detectedHeading;continue;}
     const height=Math.max(...line.words.map((word)=>word.y1-word.y0),12);const isDescription=(candidate:OcrLine)=>candidate.words.some((word)=>word.x0<previousX-columnTolerance&&/[a-z]/i.test(word.text));const previousDescription=[...lines.slice(0,lineIndex)].reverse().find(isDescription);const nextDescription=lines.slice(lineIndex+1).find(isDescription);const upperLimit=previousDescription?(previousDescription.y+line.y)/2:line.y-height;const lowerLimit=nextDescription?(line.y+nextDescription.y)/2:line.y+height;const rowBox={x0:0,x1:Math.max(...words.map((word)=>word.x1)),y0:Math.max(upperLimit+.01,line.y-height*1.25),y1:Math.min(lowerLimit-.01,line.y+height*1.25)};
-    const recovered=recoverRowPeriods(words.filter((word)=>!consumed.has(word)),rowBox,columns,columnTolerance);const {previous,current}=recovered.periods;
+    const recovered=recoverRowPeriods(words.filter((word)=>!consumed.has(word)),rowBox,columns,columnTolerance,line.y);const {previous,current}=recovered.periods;
     if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=previous;sourceCurrentNetWorth=current;continue;}
     if(/\b(?:income|fees|interest earned)\b/i.test(text))continue;
     if(!recovered.candidates.length)continue;

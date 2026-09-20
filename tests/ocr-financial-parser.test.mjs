@@ -35,7 +35,13 @@ test("deskews far-right equity values before assigning them to description rows"
     ["136 Markland Street",395364,395364,null],
   ];
   estate.forEach(([description,previous,current,fair],index)=>{const rowY=155+index*32;let x=40;for(const token of description.split(" ")){add(token,x,rowY);x+=token.length*7+6;}add(previous.toLocaleString("en-US"),470,rowY);if(fair!==null)add(fair.toLocaleString("en-US"),690,rowY+5);add(current.toLocaleString("en-US"),1050,rowY+12);});
-  add("951,614",470,325);add("951,614",1050,337);add("TOTAL",40,380);add("NET",85,380);add("WORTH",120,380);add("12,711,655",470,380);add("12,541,337",1050,392);
+  add("951,614",470,325);add("951,614",1050,337);
+  add("INVESTMENTS",40,365);const investments=[["Windstone Property Corp",944625],["Kenedy & 14th Avenue",496540],["Empire LP",2621106]];
+  investments.forEach(([description,value],index)=>{const rowY=400+index*32;let x=40;for(const token of description.split(" ")){add(token,x,rowY);x+=token.length*7+6;}add(value.toLocaleString("en-US"),470,rowY);add(value.toLocaleString("en-US"),1050,rowY+12);});
+  // Deliberately close to the final leaf: it validates the section but must
+  // never replace Empire LP or become an additional account.
+  add("4,062,271",470,480);add("4,062,271",1050,492);
+  add("TOTAL",40,540);add("NET",85,540);add("WORTH",120,540);add("12,711,655",470,540);add("12,541,337",1050,552);
   const normalized=normalizeEquityTableGeometry(fixture,{previousX:500,currentX:1080});
   assert.ok(normalized.find((word)=>word.text==="100,000"&&word.x0>1000).y0<fixture.find((word)=>word.text==="100,000"&&word.x0>1000).y0);
   const result=parseOcrFinancialWords(fixture,"scanned-table.pdf");
@@ -45,6 +51,11 @@ test("deskews far-right equity values before assigning them to description rows"
   assert.equal(realEstate[0].sourceCategoryControlCurrent,951614);
   assert.equal(result.rows.some((row)=>row.current===800000||row.current===2800000),false);
   assert.equal(result.rows.some((row)=>row.description.includes("951,614")),false);
+  const parsedInvestments=result.rows.filter((row)=>row.category==="Investments");
+  assert.deepEqual(parsedInvestments.map((row)=>[row.description,row.previous,row.current]),investments.map(([description,value])=>[description,value,value]));
+  assert.equal(parsedInvestments.find((row)=>row.description==="Empire LP").current,2621106);
+  assert.equal(parsedInvestments[0].sourceCategoryControlCurrent,4062271);
+  assert.equal(result.rows.some((row)=>row.current===4062271),false);
 
   const missing=fixture.filter((word)=>!(word.text==="283,250"&&word.x0>1000));
   const missingRows=parseOcrFinancialWords(missing,"missing-current-between-rows.pdf").rows;
