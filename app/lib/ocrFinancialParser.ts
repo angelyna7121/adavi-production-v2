@@ -18,17 +18,24 @@ export function assignAmountsToPeriods(amounts:PositionedAmount[],columns:Period
 }
 export function detectPeriodColumns(words:Array<{text:string;centerX:number;centerY:number}>):PeriodColumns {
   const normalized=words.map((word)=>({...word,text:word.text.replace(/\s*-\s*/g,"-").replace(/\s+/g," ")}));
+  const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+  const headingDate=(text:string)=>{
+    const dayFirst=text.match(/\b(\d{1,2})[-\s]([a-z]{3,9})[-\s](\d{2,4})\b/i);const monthFirst=text.match(/\b([a-z]{3,9})\s+(\d{1,2}),?\s+(\d{2,4})\b/i);const match=dayFirst??monthFirst;if(!match)return null;
+    const monthText=(dayFirst?match[2]:match[1]).slice(0,3).toLowerCase();const month=months.indexOf(monthText);if(month<0)return null;const day=Number(dayFirst?match[1]:match[2]);const rawYear=Number(match[3]);const year=rawYear+(match[3].length===2?2000:0);const timestamp=Date.UTC(year,month,day);return Number.isFinite(timestamp)?timestamp:null;
+  };
+  const dated=normalized.map((word)=>({...word,timestamp:headingDate(word.text)})).filter((word):word is typeof word&{timestamp:number}=>word.timestamp!==null);
   // Financial-position statements label the authoritative comparative columns
-  // with EQUITY. Other valuation columns can sit between them, so the two
-  // EQUITY x-coordinates are more reliable than the first two dates/numbers.
+  // with EQUITY. Associate each EQUITY heading with its nearby month, then use
+  // calendar order rather than assuming that Current is physically on a
+  // particular side of the page.
   const equity=normalized.filter((word)=>/^equity$/i.test(word.text)).sort((a,b)=>a.centerX-b.centerX);
-  if(equity.length>=2&&equity.at(-1)!.centerX-equity[0].centerX>50)return {previousX:equity[0].centerX,currentX:equity.at(-1)!.centerX};
-  const datePattern=/\b(?:\d{1,2}[-\s](?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s]\d{2,4}|(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{2,4})\b/i;
-  const dates=normalized.filter((word)=>datePattern.test(word.text)).sort((a,b)=>a.centerX-b.centerX);
-  if(dates.length<2)throw new Error("Could not identify previous and current balance columns");
-  // A statement date normally appears at the far left; the two rightmost dates
-  // are the previous/current table headings.
-  return {previousX:dates.at(-2)!.centerX,currentX:dates.at(-1)!.centerX};
+  const equitySpan=equity.length>=2?equity.at(-1)!.centerX-equity[0].centerX:0;
+  const associated=equitySpan>50?equity.map((column)=>{const date=[...dated].sort((a,b)=>distance(a.centerX,column.centerX)-distance(b.centerX,column.centerX))[0];return date&&distance(date.centerX,column.centerX)<=equitySpan*.35?{centerX:column.centerX,timestamp:date.timestamp}:null;}).filter((item):item is {centerX:number;timestamp:number}=>Boolean(item)):[];
+  const candidates=associated.length>=2?associated:dated.map((date)=>({centerX:date.centerX,timestamp:date.timestamp}));
+  const unique=[...new Map(candidates.map((candidate)=>[`${candidate.timestamp}:${Math.round(candidate.centerX)}`,candidate])).values()].sort((a,b)=>b.timestamp-a.timestamp);
+  const current=unique[0];const previous=unique.find((candidate)=>candidate.timestamp<current?.timestamp);
+  if(!current||!previous)throw new Error("Could not identify previous and current balance columns");
+  return {previousX:previous.centerX,currentX:current.centerX};
 }
 export function formatPeriodAmount(value:number|null):string {const normalized=value??0;const absoluteValue=Math.abs(normalized).toLocaleString("en-CA",{minimumFractionDigits:0,maximumFractionDigits:0});return normalized<0?`($${absoluteValue})`:`$${absoluteValue}`;}
 
