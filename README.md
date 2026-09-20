@@ -54,3 +54,9 @@ npm run build
 This is a self-contained front end. PDF text extraction, PDF page rendering, OCR and spreadsheet parsing occur locally in the browser; statement files are not sent to a server. Authentication, database persistence, payments and production integrations remain outside this application.
 
 The parser accepts up to 10 MB per file and reads up to 25 PDF pages. OCR, PDF.js and English language assets are bundled locally, so the application does not download OCR dependencies from a CDN at runtime.
+
+## Subscription security dependency
+
+The upgrade panel advertises CAD $9.99 monthly and CAD $99.99 yearly plans, but paid capabilities intentionally remain locked in this repository. Before paid report mode or CSV downloads can be enabled in production, the application requires secure authentication, Stripe Checkout, verified Stripe webhooks, persisted subscription status, and a server-side entitlement check. Browser state, local storage, query parameters, and CSS are not accepted as entitlement evidence.
+
+Free users can create, reconcile, view, print, and save the fully detailed report as PDF. Free printed reports retain the repeating adavi.ai watermark, “Prepared by adavi.ai,” and the educational disclaimer.
