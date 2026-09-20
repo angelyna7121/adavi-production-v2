@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-const { parseDocument, parseFinancialText, parseTabularRows, parseWoodGundyPortfolioPages } = await import("../app/lib/documentParser.ts");
+const { findImageRegionBreaks, parseDocument, parseFinancialText, parseTabularRows, parseWoodGundyPortfolioPages } = await import("../app/lib/documentParser.ts");
 const { applyOwnershipToRow } = await import("../app/lib/reportData.ts");
 const { woodGundyExpectedAccounts, woodGundyPortfolioPages } = await import("./fixtures/cibc-wood-gundy.fixture.ts");
 
@@ -127,3 +127,5 @@ Total Portfolio Value $1,209,488`}],"imperfect.pdf");
   assert.equal(rows[0].manuallyReviewRequired,true);
   assert.equal(rows[0].include,true);
 });
+
+test("splits a tall image only at a substantial blank page gutter",()=>{const width=100,height=240,pixels=new Uint8ClampedArray(width*height*4).fill(255);for(let y=0;y<height;y++)for(let x=0;x<width;x++)pixels[(y*width+x)*4+3]=255;for(const [start,end] of [[0,108],[136,height]])for(let y=start;y<end;y++)for(let x=8;x<92;x++){const offset=(y*width+x)*4;pixels[offset]=pixels[offset+1]=pixels[offset+2]=40;}const breaks=findImageRegionBreaks(pixels,width,height);assert.equal(breaks.length,3);assert.ok(breaks[1]>108&&breaks[1]<136);assert.deepEqual(findImageRegionBreaks(new Uint8ClampedArray(100*120*4).fill(255),100,120),[0,120]);});

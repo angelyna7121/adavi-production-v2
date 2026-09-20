@@ -40,7 +40,7 @@ export function detectPeriodColumns(words:Array<{text:string;centerX:number;cent
 export function formatPeriodAmount(value:number|null):string {const normalized=value??0;const absoluteValue=Math.abs(normalized).toLocaleString("en-CA",{minimumFractionDigits:0,maximumFractionDigits:0});return normalized<0?`($${absoluteValue})`:`$${absoluteValue}`;}
 
 const totalPattern = /^(?:sub[ -]?total|total)(?:\s|$)/i;
-const balancePattern = /^(?:[$S5])?\(?-?\d{1,3}(?:[,.'’]\d{3})+(?:[.,]\d{2})?\)?$/;
+const balancePattern = /^(?:[$S5])?\(?-?(?:\d{1,3}(?:[,.'’]\d{3})+|\d{5,})(?:[.,]\d{2})?\)?$/;
 const receivableVariant = /receiv[aei]?[b8][l1][e]?/i;
 
 export function extractWordsWithBoundingBoxes(data: { blocks?: Array<{ paragraphs?: Array<{ lines?: Array<{ words?: Array<{ text:string; confidence:number; bbox:{x0:number;y0:number;x1:number;y1:number} }> }> }> }> | null }): OcrWord[] {
@@ -82,7 +82,7 @@ export function normalizeEquityTableGeometry(words:OcrWord[],columns:PeriodColum
 export function parseAccountingAmount(raw:string):number|null {
   const value=raw.trim().replace(/[Oo]/g,"0").replace(/[’']/g,",").replace(/^S(?=\s*\d)/,"$");
   if(!balancePattern.test(value.replace(/\s+/g,"")))return null;
-  const negative=value.includes("(")||/-/.test(value);const cleaned=value.replace(/[^\d.,]/g,"").replace(/,(?=\d{2}$)/,".").replace(/,/g,"");const number=Number(cleaned);return Number.isFinite(number)?(negative?-Math.abs(number):number):null;
+  const negative=value.includes("(")||/-/.test(value);const numeric=value.replace(/[^\d.,]/g,"");const thousandsWithDots=/^\d{1,3}(?:\.\d{3})+$/.test(numeric);const cleaned=thousandsWithDots?numeric.replaceAll(".",""):numeric.replace(/,(?=\d{2}$)/,".").replace(/,/g,"");const number=Number(cleaned);return Number.isFinite(number)?(negative?-Math.abs(number):number):null;
 }
 
 function centerX(box:Box){return (box.x0+box.x1)/2;}
@@ -108,7 +108,10 @@ export function combineAccountingWords(words:OcrWord[]):AccountingCandidate[] {
 
 /** Recover amounts on a slightly displaced baseline while staying inside one visual row. */
 export function recoverRowPeriods(words:OcrWord[],row:Box,columns:PeriodColumns,tolerance:number,anchorY=(row.y0+row.y1)/2):{periods:AccountPeriods;candidates:AccountingCandidate[]} {
-  const candidates=combineAccountingWords(words.filter((word)=>overlapsRow(word,row))).filter((candidate)=>Math.min(distance(candidate.centerX,columns.previousX),distance(candidate.centerX,columns.currentX))<=tolerance);
+  // Combine split currency tokens within reconstructed baselines. Sorting every
+  // word in the broader row band by x alone can concatenate tokens from a leaf
+  // and the subtotal immediately below it.
+  const candidates=reconstructOcrLines(words.filter((word)=>overlapsRow(word,row))).flatMap((line)=>combineAccountingWords(line.words)).filter((candidate)=>Math.min(distance(candidate.centerX,columns.previousX),distance(candidate.centerX,columns.currentX))<=tolerance);
   // A leaf and its following printed subtotal can share a tight vertical band.
   // Choose the candidate nearest the description baseline before considering
   // horizontal distance, so the subtotal remains a control rather than
@@ -175,17 +178,20 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   }
   words=normalizeEquityTableGeometry(words,columns);
   lines=reconstructOcrLines(words);
-  const {previousX,currentX}=columns;const columnTolerance=Math.max(40,Math.abs(currentX-previousX)*.22);
+  // Keep the admissible band narrow enough to exclude adjacent valuation
+  // columns (for example NET VALUE) even when their amount is vertically
+  // closer to the account label than the dated EQUITY value.
+  const {previousX,currentX}=columns;const columnTolerance=Math.max(40,Math.abs(currentX-previousX)*.14);
   const datePattern=/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i;
   const dateWords=[...positionedWords,...positionedLines].filter((word)=>datePattern.test(word.text));
   const parseDate=(text:string)=>{const match=text.match(datePattern);if(!match)return undefined;const months=["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];const year=Number(match[3])+(match[3].length===2?2000:0);return `${year}-${String(months.indexOf(match[2].slice(0,3).toLowerCase())+1).padStart(2,"0")}-${match[1].padStart(2,"0")}`;};
   const nearestDate=(x:number)=>dateWords.map((word)=>({word,distance:Math.abs(word.centerX-x)})).sort((a,b)=>a.distance-b.distance)[0]?.word.text??"";
   const previousDate=parseDate(nearestDate(previousX));const currentDate=parseDate(nearestDate(currentX));
-  let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();const consumed=new Set<OcrWord>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
+  let heading="";let lastDescription="";const rows:ParsedRow[]=[];const controls=new Map<string,{current:number|null;previous:number|null}>();let sourceCurrentNetWorth:number|null=null;let sourcePreviousNetWorth:number|null=null;
   for(let lineIndex=0;lineIndex<lines.length;lineIndex++){
     const line=lines[lineIndex];const text=line.text.trim();const detectedHeading=financialHeading(text);const lineCandidates=combineAccountingWords(line.words);if(detectedHeading&&(!lineCandidates.length||/^(?:loans? receivable|real estate|investments?|mortgages?)$/i.test(detectedHeading))){heading=detectedHeading;continue;}
     const height=Math.max(...line.words.map((word)=>word.y1-word.y0),12);const isDescription=(candidate:OcrLine)=>candidate.words.some((word)=>word.x0<previousX-columnTolerance&&/[a-z]/i.test(word.text));const previousDescription=[...lines.slice(0,lineIndex)].reverse().find(isDescription);const nextDescription=lines.slice(lineIndex+1).find(isDescription);const upperLimit=previousDescription?(previousDescription.y+line.y)/2:line.y-height;const lowerLimit=nextDescription?(line.y+nextDescription.y)/2:line.y+height;const rowBox={x0:0,x1:Math.max(...words.map((word)=>word.x1)),y0:Math.max(upperLimit+.01,line.y-height*1.25),y1:Math.min(lowerLimit-.01,line.y+height*1.25)};
-    const recovered=recoverRowPeriods(words.filter((word)=>!consumed.has(word)),rowBox,columns,columnTolerance,line.y);const {previous,current}=recovered.periods;
+    const recovered=recoverRowPeriods(words,rowBox,columns,columnTolerance,line.y);const {previous,current}=recovered.periods;
     if(/total net\s*worth/i.test(text)){sourcePreviousNetWorth=previous;sourceCurrentNetWorth=current;continue;}
     if(/\b(?:income|fees|interest earned)\b/i.test(text))continue;
     if(!recovered.candidates.length)continue;
@@ -195,11 +201,10 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
     // reconciliation control, never a leaf account.
     const numericOnlyLabel=parseAccountingAmount(label)!==null;
     if(totalPattern.test(label)||numericOnlyLabel||(!label&&heading)){controls.set(controlKey(heading),{current,previous});continue;}
-    label=label.replace(receivableVariant,"receivable");const fallbackValue=current??previous;if(label.length<3&&fallbackValue!==null&&fallbackValue<0&&lastDescription)label=`${lastDescription} payable / offset`;const letters=(label.match(/[a-z]/gi)??[]).length;const numericFragment=/^(?:[$S5()\d,.'’+\-]+\s*){1,}/.test(label)&&letters<3;if(label.length<3||letters<3||numericFragment||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
+    label=label.replace(receivableVariant,"receivable").replace(/\s*§\s*/g," ").trim();const fallbackValue=current??previous;if(label.length<3&&fallbackValue!==null&&fallbackValue<0&&lastDescription)label=`${lastDescription} payable / offset`;const letters=(label.match(/[a-z]/gi)??[]).length;const numericFragment=/^(?:[$S5()\d,.'’+\-]+\s*){1,}/.test(label)&&letters<3;if(label.length<3||letters<3||numericFragment||/^\d+[.)]?$/i.test(label)||/^page\b/i.test(label))continue;
     lastDescription=label;const classification=financialCategory(label,heading,(fallbackValue??0)<0);const confidence=line.words.reduce((sum,word)=>sum+word.confidence,0)/line.words.length;
-    recovered.candidates.flatMap((candidate)=>candidate.words).forEach((word)=>consumed.add(word));
-    const ambiguousTax=/corporate tax instalment/i.test(`${heading} ${label}`);const missingCurrent=current===null;
-    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:missingCurrent?"":Math.abs(current),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:missingCurrent||ambiguousTax||confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate,ocrRowBox:rowBox});
+    const ambiguousTax=/corporate tax instalment/i.test(`${heading} ${label}`);const missingCurrent=current===null;const periodRatio=current!==null&&previous!==null&&current!==0&&previous!==0?Math.max(Math.abs(current/previous),Math.abs(previous/current)):1;
+    rows.push({id:`ocr-${rows.length}-${Math.round(line.y)}`,include:true,investor:"",category:classification.category,holder:classification.holder,accountName:classification.accountName,institution:classification.holder,description:label,current:missingCurrent?"":Math.abs(current),previous:previous===null?null:Math.abs(previous),kind:classification.kind,source,ocrConfidence:confidence,needsReview:missingCurrent||ambiguousTax||periodRatio>5||confidence<70||recovered.candidates.some((candidate)=>candidate.confidence<60),sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCurrentDate:currentDate,sourcePreviousDate:previousDate,ocrRowBox:rowBox});
   }
   for(const row of rows){row.sourceCurrentNetWorth=sourceCurrentNetWorth;row.sourcePreviousNetWorth=sourcePreviousNetWorth;const control=controls.get(row.category);row.sourceCategoryControlCurrent=control?.current??null;row.sourceCategoryControlPrevious=control?.previous??null;}
   return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0,periodColumns:{...columns,tolerance:columnTolerance}};
