@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
 import { formatPeriodAmount } from "./lib/ocrFinancialParser";
-import { applyOwnershipToRow, assignInvestor, assignStatement, buildInvestorStatement, calculateAssetMix, calculatePeriodTotals, calculateReconciliation, confirmedDetailRows, createReportCsv, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
+import { applyOwnershipToRow, assignInvestor, assignStatement, buildInvestorStatement, calculateAssetMix, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
 
 type Step = "upload" | "review" | "report";
 type Investor = { investorId: string; name: string; statements: StatementRecord[] };
@@ -59,7 +59,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
   const statement = new Date(`${statementDate}T00:00:00Z`);
   const previousPeriodLabel = new Date(Date.UTC(statement.getUTCFullYear(), statement.getUTCMonth(), 0)).toLocaleDateString("en-CA", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
   const assetMix = useMemo(() => calculateAssetMix(rows), [rows]);
-  const reconciliation = useMemo(() => calculateReconciliation(rows), [rows]);
+  const assignmentReconciliations = useMemo(() => calculateAssignmentReconciliations(rows), [rows]);
   const investorStatement = useMemo(() => buildInvestorStatement(rows), [rows]);
   const printRows = useMemo(() => rows.filter((row) => row.investorId && printInvestorIds.includes(row.investorId)), [rows, printInvestorIds]);
   const printAssetMix = useMemo(() => calculateAssetMix(printRows), [printRows]);
@@ -116,7 +116,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
 
   function editRow(row:Row){setSelectedRowId(row.id);setRowEditorError("");setRowEditor({mode:"edit",sourceRowId:row.id,draft:{...row}});}
 
-  function deleteRow(id:string){setRows((current)=>current.filter((row)=>row.id!==id));setSelectedRowId((current)=>current===id?null:current);setRowEditor((current)=>current?.sourceRowId===id?null:current);setRowEditorError("");}
+  function deleteRow(id:string){const row=rows.find((item)=>item.id===id);if(!row||!window.confirm(`Delete ${row.description || "this row"}? This removes it only from ${row.investor || "this investor"}’s statement assignment.`))return;setRows((current)=>current.filter((item)=>item.id!==id));setSelectedRowId((current)=>current===id?null:current);setRowEditor((current)=>current?.sourceRowId===id?null:current);setRowEditorError("");}
 
   function patchEditor(patch:Partial<Row>){setRowEditor((current)=>current?{...current,draft:{...current.draft,...patch}}:current);}
   function patchEditorRaw(period:"current"|"previous",value:number|""|null){setRowEditor((current)=>{if(!current)return current;const draft=period==="current"?{...current.draft,rawCurrent:value as number|""}:{...current.draft,rawPrevious:value as number|null};return {...current,draft:applyOwnershipToRow(draft,draft.ownershipPercentage??100)};});}
@@ -224,6 +224,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     searchIndexRef.current = 0;
     matches[0].classList.add("pageSearchCurrent");
     matches[0].scrollIntoView({ behavior: "smooth", block: "center" });
+    (matches[0].matches("input,button,select,a")?matches[0]:matches[0].querySelector<HTMLElement>("input,button,select,a"))?.focus();
     setSearchStatus(`Result 1 of ${matches.length}.`);
   }
 
@@ -235,6 +236,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     const current = matches[searchIndexRef.current];
     current.classList.add("pageSearchCurrent");
     current.scrollIntoView({ behavior: "smooth", block: "center" });
+    (current.matches("input,button,select,a")?current:current.querySelector<HTMLElement>("input,button,select,a"))?.focus();
     setSearchStatus(`Result ${searchIndexRef.current + 1} of ${matches.length}.`);
   }
 
@@ -243,6 +245,8 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     setShowSearch(false);
     setSearchStatus("");
   }
+
+  useEffect(()=>{if(!showSearch)return;const close=(event:KeyboardEvent)=>{if(event.key==="Escape"){searchMatchesRef.current.forEach((element)=>element.classList.remove("pageSearchMatch","pageSearchCurrent"));searchMatchesRef.current=[];searchIndexRef.current=-1;setSearchMatchCount(0);setShowSearch(false);setSearchStatus("");}};window.addEventListener("keydown",close);return()=>window.removeEventListener("keydown",close);},[showSearch]);
 
   return (
     <main>
@@ -310,12 +314,12 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
             </div>
             {rows.some((row) => row.needsReview) && <div className="reconciliationWarning" role="status">Some OCR values had low confidence and are highlighted for review. Confirm them against the statement before generating the report.</div>}
             {currentTotals.categories.some((category) => category.status === "minor-source-difference") && <div className="reconciliationWarning" role="status">The statement contains a $1 difference between displayed leaf accounts and a printed category subtotal. The printed subtotal is used once as the reconciliation control; no adjustment account was invented.</div>}
-            {reconciliation.matches === false && <div className="reconciliationWarning" role="alert">Calculated net worth differs from the statement’s TOTAL NET WORTH by {money(Math.abs(reconciliation.difference!))}. Review the highlighted extraction values.</div>}
+            {assignmentReconciliations.filter((item)=>item.matches===false).map((item)=><div className="reconciliationWarning" role="alert" key={item.statementId}><strong>{item.investor} · {item.source}</strong><span> Calculated included net worth differs from this assignment’s source TOTAL NET WORTH by {money(Math.abs(item.difference!))}. Review only this investor assignment’s highlighted values.</span></div>)}
             <div className="tableWrap" tabIndex={0} aria-label="Review extracted financial rows">
               <table className="reviewTable"><thead><tr><th>Select</th><th>Include</th><th>Investor</th><th>Category</th><th>Holder / Institution</th><th>Account / Description</th><th>Statement / Ownership</th><th>Raw Current</th><th>Included Current</th><th>Raw Previous</th><th>Included Previous</th><th>Asset / Liability</th><th></th></tr></thead>
                 <tbody>{rows.map((row) => <tr key={row.id} className={`${row.needsReview ? "needsReview" : ""} ${effectiveOwnershipPercentage(row)<100?"ownershipAdjusted":""} ${selectedRowId===row.id?"selectedForDuplicate":""}`}>
                   <td><input type="radio" name="selected-review-row" aria-label={`Select ${row.description || "account row"} for duplication`} checked={selectedRowId===row.id} onChange={()=>setSelectedRowId(row.id)} /></td>
-                  <td><input type="checkbox" checked={row.include} onChange={(e) => update(row.id, { include: e.target.checked })} /></td>
+                  <td><input type="checkbox" aria-label={`Include ${row.description || "account row"}`} checked={row.include} onChange={(e) => update(row.id, { include: e.target.checked })} /></td>
                   <td><select aria-label="Assigned investor" value={row.investorId??""} className={!row.investor.trim() ? "invalid" : ""} onChange={(e) => { const selected = investorList.find((investor) => investor.investorId === e.target.value);if(row.statementId)reassignStatement(row.statementId,e.target.value);else update(row.id, { investor: selected?.name??"", investorId: selected?.investorId }); }}><option value="">Select investor</option>{investorList.filter((item) => item.name.trim()).map((item) => <option key={item.investorId} value={item.investorId}>{item.name.trim()}</option>)}</select></td>
                   <td><select value={row.category} onChange={(e) => update(row.id, { category: e.target.value as Category })}>{categoriesFor(row.kind).map((c) => <option key={c}>{c}</option>)}</select></td>
                   <td><input value={row.holder} placeholder="Holder / institution" onChange={(e) => update(row.id, { holder: e.target.value, institution: e.target.value })} /></td>

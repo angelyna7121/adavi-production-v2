@@ -57,6 +57,9 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .reviewTable input.invalid { border-color:#d05c6d; }
 .reviewTable .sourceCell { max-width:160px; color:#9ba7b8; font-size:12px; }
 .rowActions { position:relative; z-index:2; display:flex; align-items:center; gap:7px; white-space:nowrap; }
+.reviewTable th:last-child,.reviewTable td:last-child { position:sticky; right:0; z-index:4; background:#102138; box-shadow:-10px 0 14px rgba(5,15,30,.28); }
+.reviewTable td:last-child button { pointer-events:auto; }
+.reviewTable input[type="checkbox"],.reviewTable input[type="radio"] { position:relative; z-index:5; min-width:18px; width:18px; height:18px; cursor:pointer; }
 .editRowAction,.delete { position:relative; pointer-events:auto; border:1px solid #526683; border-radius:7px; background:#102138; color:#e7edf5; font-weight:800; }
 .editRowAction { padding:7px 9px; font-size:12px; }
 .delete { min-width:34px; min-height:34px; color:#ff9da8; border-color:#9f5963; font-size:21px; line-height:1; }
