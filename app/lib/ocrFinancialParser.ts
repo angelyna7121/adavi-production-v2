@@ -46,6 +46,32 @@ export function reconstructOcrLines(words: OcrWord[]): OcrLine[] {
   return lines.map((items)=>{items.sort((a,b)=>a.x0-b.x0);return {words:items,text:items.map((word)=>word.text).join(" ").replace(/\s+([,.)])/g,"$1").replace(/([(])\s+/g,"$1"),y:items.reduce((sum,item)=>sum+(item.y0+item.y1)/2,0)/items.length};}).sort((a,b)=>a.y-b.y);
 }
 
+/**
+ * Correct the small vertical drift produced when a scanned table is slightly
+ * skewed. Without this normalization, far-right Current values can be closer
+ * to the following description than to their own row even though they occupy
+ * the same physical ruled row.
+ */
+export function normalizeEquityTableGeometry(words:OcrWord[],columns:PeriodColumns):OcrWord[] {
+  const center=(word:OcrWord)=>({x:(word.x0+word.x1)/2,y:(word.y0+word.y1)/2});
+  const equity=words.filter((word)=>/^equity$/i.test(word.text));
+  const dates=words.filter((word)=>/\d{1,2}\s*-\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*-\s*\d{2,4}/i.test(word.text));
+  const slopes:number[]=[];
+  for(const candidates of [equity,dates]){
+    const previous=[...candidates].sort((a,b)=>Math.abs(center(a).x-columns.previousX)-Math.abs(center(b).x-columns.previousX))[0];
+    const current=[...candidates].sort((a,b)=>Math.abs(center(a).x-columns.currentX)-Math.abs(center(b).x-columns.currentX))[0];
+    if(!previous||!current||previous===current)continue;
+    const left=center(previous),right=center(current);const dx=right.x-left.x;const maxHeaderHeight=Math.max(previous.y1-previous.y0,current.y1-current.y0);
+    // The pair must be on the same visual header row. This prevents two dates
+    // emitted on separate OCR lines from being mistaken for page skew.
+    if(Math.abs(dx)>50&&Math.abs(right.y-left.y)<=maxHeaderHeight*1.1)slopes.push((right.y-left.y)/dx);
+  }
+  if(!slopes.length)return words;
+  slopes.sort((a,b)=>a-b);const slope=slopes[Math.floor(slopes.length/2)];
+  if(!Number.isFinite(slope)||Math.abs(slope)>.12)return words;
+  return words.map((word)=>{const correction=slope*(center(word).x-columns.previousX);return {...word,y0:word.y0-correction,y1:word.y1-correction};});
+}
+
 export function parseAccountingAmount(raw:string):number|null {
   const value=raw.trim().replace(/[Oo]/g,"0").replace(/[’']/g,",").replace(/^S(?=\s*\d)/,"$");
   if(!balancePattern.test(value.replace(/\s+/g,"")))return null;
@@ -115,7 +141,7 @@ function financialHeading(text:string):string|null {
 }
 
 export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseResult {
-  const lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");if(!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
+  let lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");if(!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
   const positionedWords=words.map((word)=>({text:word.text,centerX:(word.x0+word.x1)/2,centerY:(word.y0+word.y1)/2}));
   const positionedLines=lines.map((line)=>{const dateParts=line.words.filter((word)=>!/^equity$/i.test(word.text));return {text:dateParts.map((word)=>word.text).join(" "),centerX:dateParts.reduce((sum,word)=>sum+(word.x0+word.x1)/2,0)/Math.max(1,dateParts.length),centerY:line.y};});
   let columns:PeriodColumns;
@@ -130,6 +156,8 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
       return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0};
     }
   }
+  words=normalizeEquityTableGeometry(words,columns);
+  lines=reconstructOcrLines(words);
   const {previousX,currentX}=columns;const columnTolerance=Math.max(40,Math.abs(currentX-previousX)*.22);
   const datePattern=/(\d{1,2})[-\s](jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*[-\s](\d{2,4})/i;
   const dateWords=[...positionedWords,...positionedLines].filter((word)=>datePattern.test(word.text));

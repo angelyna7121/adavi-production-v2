@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { expectedSuffolkChange, expectedSuffolkNetWorth, expectedSuffolkTotals, suffolkAssetControls, suffolkLiabilityControls, suffolkMortgageLeaves } from "./fixtures/suffolk-july-2026.fixture.ts";
-const { assignAmountsToPeriods, combineAccountingWords, detectPeriodColumns, formatPeriodAmount, parseAccountingAmount, parseOcrFinancialWords, recoverMissingPeriodFromCrop, recoverRowPeriods } = await import("../app/lib/ocrFinancialParser.ts");
+const { assignAmountsToPeriods, combineAccountingWords, detectPeriodColumns, formatPeriodAmount, normalizeEquityTableGeometry, parseAccountingAmount, parseOcrFinancialWords, recoverMissingPeriodFromCrop, recoverRowPeriods } = await import("../app/lib/ocrFinancialParser.ts");
 const { rotationCandidates, shouldUseOcr } = await import("../app/lib/documentParser.ts");
 const { calculatePeriodTotals, calculateReconciliation, confirmedDetailRows } = await import("../app/lib/reportData.ts");
 const { calculateStatementTotals, reconcileCategory, sumLeafRows } = await import("../app/lib/reconciliation.ts");
@@ -23,6 +23,37 @@ test("implements the supplied leaf and category reconciliation algorithm",()=>{c
 test("handles rotation, OCR fallback, and accounting-number safeguards",()=>{assert.deepEqual(rotationCandidates(270),[270,0,90,180]);assert.equal(shouldUseOcr([]),true);assert.equal(parseAccountingAmount("$ (2,280,517)"),-2280517);assert.equal(parseAccountingAmount("1177"),null);assert.equal(parseAccountingAmount("37.50%"),null);});
 test("does not abort a single-period OCR document that mentions net worth",()=>{const result=parseOcrFinancialWords([{text:"NET",confidence:62,x0:20,y0:20,x1:55,y1:36},{text:"WORTH",confidence:62,x0:60,y0:20,x1:110,y1:36},{text:"Total",confidence:62,x0:20,y0:60,x1:60,y1:76},{text:"Portfolio",confidence:62,x0:65,y0:60,x1:130,y1:76},{text:"Value",confidence:62,x0:135,y0:60,x1:175,y1:76},{text:"$1,209,488",confidence:62,x0:400,y0:60,x1:490,y1:76}],"portfolio.pdf");assert.deepEqual(result.rows,[]);assert.equal(result.averageConfidence,62);});
 test("detects dynamic EQUITY comparative columns across intervening valuation columns",()=>{assert.deepEqual(detectPeriodColumns([{text:"August 31, 2026",centerX:100,centerY:20},{text:"EQUITY",centerX:500,centerY:80},{text:"31-Jul-26",centerX:500,centerY:100},{text:"FAIR MARKET VALUE",centerX:650,centerY:80},{text:"PROPERTY MORTGAGE",centerX:760,centerY:80},{text:"NET VALUE",centerX:840,centerY:80},{text:"EQUITY",centerX:950,centerY:80},{text:"31-Aug-26",centerX:950,centerY:100}]),{previousX:500,currentX:950});});
+test("deskews far-right equity values before assigning them to description rows",()=>{
+  const fixture=[];const add=(text,x,y,confidence=94)=>fixture.push({text,confidence,x0:x,y0:y,x1:x+Math.max(18,text.length*7),y1:y+16});
+  add("NET",40,20);add("WORTH",75,20);add("EQUITY",470,60);add("31-Jul-26",470,80);add("FAIR",620,60);add("MARKET",660,60);add("VALUE",710,60);add("PROPERTY",760,60);add("MORTGAGE",820,60);add("NET",900,60);add("VALUE",925,60);add("EQUITY",1050,72);add("31-Aug-26",1050,92);
+  add("REAL",40,120);add("ESTATE",80,120);
+  const estate=[
+    ["1177 Yonge St., Toronto",100000,100000,800000],
+    ["Kingston Westney - Sutton",283250,283250,2800000],
+    ["Pond Mills, London, ON",158000,158000,null],
+    ["JJJ Realty Inc.",15000,15000,null],
+    ["136 Markland Street",395364,395364,null],
+  ];
+  estate.forEach(([description,previous,current,fair],index)=>{const rowY=155+index*32;let x=40;for(const token of description.split(" ")){add(token,x,rowY);x+=token.length*7+6;}add(previous.toLocaleString("en-US"),470,rowY);if(fair!==null)add(fair.toLocaleString("en-US"),690,rowY+5);add(current.toLocaleString("en-US"),1050,rowY+12);});
+  add("951,614",470,325);add("951,614",1050,337);add("TOTAL",40,380);add("NET",85,380);add("WORTH",120,380);add("12,711,655",470,380);add("12,541,337",1050,392);
+  const normalized=normalizeEquityTableGeometry(fixture,{previousX:500,currentX:1080});
+  assert.ok(normalized.find((word)=>word.text==="100,000"&&word.x0>1000).y0<fixture.find((word)=>word.text==="100,000"&&word.x0>1000).y0);
+  const result=parseOcrFinancialWords(fixture,"scanned-table.pdf");
+  const realEstate=result.rows.filter((row)=>row.category==="Real Estate");
+  assert.deepEqual(realEstate.map((row)=>[row.description,row.previous,row.current]),estate.map(([description,previous,current])=>[description,previous,current]));
+  assert.equal(realEstate[0].sourceCategoryControlPrevious,951614);
+  assert.equal(realEstate[0].sourceCategoryControlCurrent,951614);
+  assert.equal(result.rows.some((row)=>row.current===800000||row.current===2800000),false);
+  assert.equal(result.rows.some((row)=>row.description.includes("951,614")),false);
+
+  const missing=fixture.filter((word)=>!(word.text==="283,250"&&word.x0>1000));
+  const missingRows=parseOcrFinancialWords(missing,"missing-current-between-rows.pdf").rows;
+  const kingston=missingRows.find((row)=>row.description==="Kingston Westney - Sutton");
+  assert.equal(kingston.previous,283250);
+  assert.equal(kingston.current,"");
+  assert.equal(kingston.needsReview,true);
+  assert.deepEqual([missingRows.find((row)=>row.description==="1177 Yonge St., Toronto").current,missingRows.find((row)=>row.description==="Pond Mills, London, ON").current],[100000,158000]);
+});
 test("maps July and August independently and reports rather than forces reconciliation",()=>{
   const august=words.map((word)=>{
     if(word.text==="30-Jun-26")return {...word,text:"31-Jul-26"};
