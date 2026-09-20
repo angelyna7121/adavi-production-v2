@@ -17,7 +17,7 @@ export function reassignInvestor(row: ParsedRow, investorId: string, investor: s
 export function hasUnnamedIncludedRows(rows: ParsedRow[]) { return rows.some((row)=>row.include&&!row.investor.trim()); }
 export function isSummaryRow(row: ParsedRow) { return /^\s*(?:grand\s+total|sub\s*total|subtotal|total)(?:\s|:|-|$)/i.test(row.description); }
 /** The public report model contains confirmed numeric leaf accounts only; source totals are never public rows. */
-export function confirmedDetailRows(rows: ParsedRow[]) { return rows.filter((row)=>row.include&&row.current!==""&&!isSummaryRow(row)); }
+export function confirmedDetailRows(rows: ParsedRow[]) { return rows.filter((row)=>row.include&&row.current!==""&&row.isSourceTotal!==true&&row.isLeafAccount!==false&&!isSummaryRow(row)); }
 export function calculateReconciliation(rows: ParsedRow[]) {
   const totals=calculatePeriodTotals(rows,"current");return {calculated:totals.netWorth,source:totals.source,difference:totals.source===null?null:totals.netWorth-totals.source,matches:totals.source===null?null:Math.abs(totals.netWorth-totals.source)<=1};
 }
@@ -73,6 +73,51 @@ export function buildInvestorStatement(rows:ParsedRow[]):InvestorStatement {
   });
   const assets=sections[0],liabilities=sections[1];
   return {sections,currentFullAssets:assets.currentFull,currentShareAssets:assets.currentShare,previousFullAssets:assets.previousFull,previousShareAssets:assets.previousShare,currentFullLiabilities:liabilities.currentFull,currentShareLiabilities:liabilities.currentShare,previousFullLiabilities:liabilities.previousFull,previousShareLiabilities:liabilities.previousShare,currentFullNetWorth:assets.currentFull-liabilities.currentFull,currentShareNetWorth:assets.currentShare-liabilities.currentShare,previousFullNetWorth:assets.previousFull-liabilities.previousFull,previousShareNetWorth:assets.previousShare-liabilities.previousShare};
+}
+
+export type ReportInvestor = { investorId:string; name:string };
+export type SelectedInvestorReport = {
+  investorIds:string[];
+  investorNames:string[];
+  title:string;
+  hasSelection:boolean;
+  rows:ParsedRow[];
+  statement:InvestorStatement;
+  assetMix:AssetMixEntry[];
+  current:ReturnType<typeof calculatePeriodTotals>;
+  previous:ReturnType<typeof calculatePeriodTotals>;
+  changeInNetWorth:number;
+};
+
+function selectedReportTitle(names:string[]){
+  if(names.length<2)return names[0]??"";
+  return `${names.slice(0,-1).join(", ")} & ${names.at(-1)}`;
+}
+
+/**
+ * The single source of truth for both the selected-investor preview and print.
+ * Investor order and names come from the live investor records; row membership
+ * comes only from stable investor assignment IDs.
+ */
+export function deriveSelectedInvestorReport(rows:ParsedRow[],investors:ReportInvestor[],checkedInvestorIds:string[]):SelectedInvestorReport {
+  const checked=new Set(checkedInvestorIds);
+  const selectedInvestors=investors.filter((investor)=>checked.has(investor.investorId)&&investor.name.trim());
+  const selectedIds=new Set(selectedInvestors.map((investor)=>investor.investorId));
+  const seen=new Set<string>();
+  const selectedRows=confirmedDetailRows(rows).filter((row)=>{
+    if(!row.investorId||!selectedIds.has(row.investorId))return false;
+    // A source can be assigned to several investors. statementId keeps those
+    // assignments independent while removing an exact OCR duplicate inside one.
+    const key=[row.statementId??row.investorId,row.sourcePage??"",row.description.trim().toLocaleLowerCase("en-CA"),row.rawCurrent??row.current,row.rawPrevious!==undefined?row.rawPrevious:row.previous].join("|");
+    if(seen.has(key))return false;
+    seen.add(key);
+    return true;
+  });
+  const statement=buildInvestorStatement(selectedRows);
+  const current=calculatePeriodTotals(selectedRows,"current");
+  const previous=calculatePeriodTotals(selectedRows,"previous");
+  const investorNames=selectedInvestors.map((investor)=>investor.name.trim());
+  return {investorIds:selectedInvestors.map((investor)=>investor.investorId),investorNames,title:selectedReportTitle(investorNames),hasSelection:selectedInvestors.length>0,rows:selectedRows,statement,assetMix:calculateAssetMix(selectedRows),current,previous,changeInNetWorth:statement.currentShareNetWorth-statement.previousShareNetWorth};
 }
 
 export type InvestorStatementPrintRow = { key:string; level:"section"|"category"|"account"|"subtotal"|"sectionTotal"|"netWorth"; label:string; holder?:string; ownership?:number; currentFull?:number; currentShare?:number; previousFull?:number; previousShare?:number };

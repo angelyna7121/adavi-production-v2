@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 const { parseFinancialText } = await import("../app/lib/documentParser.ts");
-const { CSV_HEADERS, applyOwnershipToRow, assignInvestor, assignStatement, buildInvestorStatement, calculateAssetMix, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, duplicateFinancialRow, effectiveOwnershipPercentage, filterPrintableSchedulePages, groupReportRows, hasUnnamedIncludedRows, paginateInvestorStatement, paginateReportSchedule, reassignInvestor, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage } = await import("../app/lib/reportData.ts");
+const { CSV_HEADERS, applyOwnershipToRow, assignInvestor, assignStatement, buildInvestorStatement, calculateAssetMix, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, deriveSelectedInvestorReport, duplicateFinancialRow, effectiveOwnershipPercentage, filterPrintableSchedulePages, groupReportRows, hasUnnamedIncludedRows, paginateInvestorStatement, paginateReportSchedule, reassignInvestor, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage } = await import("../app/lib/reportData.ts");
 
 const statement = `ASSETS
 CIBC Bank
@@ -96,3 +96,49 @@ test("builds independent 100 percent and investor-share statement values",()=>{c
 test("uses a reversible fallback only for legacy rows without raw balances",()=>{const legacy={...rows[0],rawCurrent:undefined,rawPrevious:undefined,ownershipPercentage:25,current:250,previous:200};const account=buildInvestorStatement([legacy]).sections[0].categories[0].accounts[0];assert.deepEqual([account.currentFull,account.currentShare,account.previousFull,account.previousShare],[1000,250,800,200]);});
 
 test("paginates the investor statement without blank pages or duplicate accounts",()=>{const many=Array.from({length:40},(_,index)=>({...rows[index%rows.length],id:`statement-account-${index}`,description:`Investor account ${index+1}`,rawCurrent:1000+index,current:500+index,rawPrevious:900+index,previous:450+index,ownershipPercentage:50}));const report=buildInvestorStatement(many);const pages=paginateInvestorStatement(report,12);assert.ok(pages.length>1);assert.ok(pages.every((page)=>page.some((row)=>row.level==="account")));const accounts=pages.flat().filter((row)=>row.level==="account");assert.equal(accounts.length,40);assert.equal(new Set(accounts.map((row)=>row.key)).size,40);assert.equal(pages.flat().filter((row)=>row.level==="netWorth").length,1);});
+
+test("derives the entire preview and print model from stable selected investor IDs",()=>{
+  const names=Array.from({length:3},(_,index)=>`Generated Investor ${String.fromCharCode(65+index)}`);
+  const investors=names.map((name,index)=>({investorId:`generated-${index+1}`,name}));
+  const source={...rows[0],id:"shared-source",source:"shared.pdf",rawCurrent:1000,rawPrevious:800,current:1000,previous:800,sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,sourceCategoryControlCurrent:null,sourceCategoryControlPrevious:null};
+  const first=assignStatement(assignInvestor([source],investors[0].investorId,names[0]),{statementId:"shared-first",investorId:investors[0].investorId,filename:"shared.pdf",ownershipPercentage:50,parseStatus:"ready"});
+  const second=assignStatement(assignInvestor([source],investors[1].investorId,names[1]),{statementId:"shared-second",investorId:investors[1].investorId,filename:"shared.pdf",ownershipPercentage:25,parseStatus:"ready"});
+  const third=assignStatement(assignInvestor([{...source,id:"third-source",rawCurrent:4000,rawPrevious:3000,current:4000,previous:3000}],investors[2].investorId,names[2]),{statementId:"third",investorId:investors[2].investorId,filename:"third.pdf",ownershipPercentage:100,parseStatus:"ready"});
+  const allRows=[...first,...second,...third,{...third[0],id:"excluded",include:false,current:999999,rawCurrent:999999},{...third[0],id:"source-total",description:"Total Assets",current:4000}];
+
+  const onlyFirst=deriveSelectedInvestorReport(allRows,investors,[investors[0].investorId]);
+  assert.equal(onlyFirst.title,names[0]);
+  assert.deepEqual(onlyFirst.investorIds,[investors[0].investorId]);
+  assert.equal(onlyFirst.statement.currentShareAssets,500);
+  assert.equal(onlyFirst.assetMix.reduce((sum,item)=>sum+item.total,0),500);
+  assert.ok(onlyFirst.rows.every((row)=>row.investorId===investors[0].investorId));
+
+  const onlySecond=deriveSelectedInvestorReport(allRows,investors,[investors[1].investorId]);
+  assert.equal(onlySecond.title,names[1]);
+  assert.equal(onlySecond.statement.currentShareAssets,250);
+  assert.equal(onlySecond.statement.previousShareAssets,200);
+
+  const firstTwo=deriveSelectedInvestorReport(allRows,investors,[investors[0].investorId,investors[1].investorId]);
+  assert.equal(firstTwo.title,`${names[0]} & ${names[1]}`);
+  assert.equal(firstTwo.statement.currentShareAssets,750);
+  assert.equal(firstTwo.rows.some((row)=>row.investorId===investors[2].investorId),false);
+  assert.equal(firstTwo.rows.length,2,"the same PDF remains two independent assignments");
+
+  const all=deriveSelectedInvestorReport(allRows,investors,investors.map((investor)=>investor.investorId));
+  assert.equal(all.statement.currentShareAssets,4750);
+  assert.equal(all.statement.previousShareAssets,3600);
+  assert.equal(all.changeInNetWorth,1150);
+  assert.equal(all.rows.length,3,"excluded and source-total rows never enter the report");
+
+  const none=deriveSelectedInvestorReport(allRows,investors,[]);
+  assert.equal(none.hasSelection,false);
+  assert.equal(none.title,"");
+  assert.equal(none.rows.length,0);
+  assert.equal(none.statement.currentShareAssets,0);
+
+  const renamed=deriveSelectedInvestorReport(allRows,[{...investors[0],name:"Renamed Now"},...investors.slice(1)],[investors[0].investorId]);
+  assert.equal(renamed.title,"Renamed Now");
+  assert.equal(renamed.statement.currentShareAssets,onlyFirst.statement.currentShareAssets);
+  const restored=deriveSelectedInvestorReport(allRows,investors,[investors[0].investorId]);
+  assert.deepEqual(restored.statement,onlyFirst.statement);
+});

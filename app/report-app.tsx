@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
 import { formatPeriodAmount } from "./lib/ocrFinancialParser";
-import { applyOwnershipToRow, assignInvestor, assignStatement, buildInvestorStatement, calculateAssetMix, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
+import { applyOwnershipToRow, assignInvestor, assignStatement, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, deriveSelectedInvestorReport, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
 
 type Step = "upload" | "review" | "report";
 type Investor = { investorId: string; name: string; statements: StatementRecord[] };
@@ -25,7 +25,7 @@ function money(value: number | null | "") { return formatPeriodAmount(value === 
 export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedPaidEntitlement: boolean }) {
   const [step, setStep] = useState<Step>("upload");
   const [rows, setRows] = useState<Row[]>([]);
-  const [groupName, setGroupName] = useState("The Sample Family");
+  const [groupName, setGroupName] = useState("");
   const [statementDate, setStatementDate] = useState(new Date().toISOString().slice(0, 10));
   const [currency, setCurrency] = useState("CAD");
   const [investorList, setInvestorList] = useState<Investor[]>([{ investorId: crypto.randomUUID(), name: "", statements: [] }]);
@@ -58,12 +58,8 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
   const currentPeriodLabel = new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" });
   const statement = new Date(`${statementDate}T00:00:00Z`);
   const previousPeriodLabel = new Date(Date.UTC(statement.getUTCFullYear(), statement.getUTCMonth(), 0)).toLocaleDateString("en-CA", { timeZone: "UTC", month: "short", day: "numeric", year: "numeric" });
-  const assetMix = useMemo(() => calculateAssetMix(rows), [rows]);
   const assignmentReconciliations = useMemo(() => calculateAssignmentReconciliations(rows), [rows]);
-  const investorStatement = useMemo(() => buildInvestorStatement(rows), [rows]);
-  const printRows = useMemo(() => rows.filter((row) => row.investorId && printInvestorIds.includes(row.investorId)), [rows, printInvestorIds]);
-  const printAssetMix = useMemo(() => calculateAssetMix(printRows), [printRows]);
-  const printInvestorStatement = useMemo(() => buildInvestorStatement(printRows), [printRows]);
+  const selectedReport = useMemo(() => deriveSelectedInvestorReport(rows, investorList, printInvestorIds), [rows, investorList, printInvestorIds]);
 
   async function acceptFiles(list: FileList | File[]) {
     const selected = Array.from(list);
@@ -191,7 +187,8 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
 
   function downloadCsv() {
     if (!hasVerifiedPaidEntitlement) { setShowUpgrade(true); return; }
-    const blob = new Blob([createReportCsv(rows)], { type: "text/csv;charset=utf-8" });
+    if (!selectedReport.hasSelection) return;
+    const blob = new Blob([createReportCsv(selectedReport.rows)], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
@@ -340,14 +337,14 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
 
         {step === "report" && (
           <section className="reportArea">
-            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your consolidated statement is complete</h2><p>{groupName} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!printInvestorIds.length&&<span className="printSelectionError" role="alert">Select at least one investor to print.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!printInvestorIds.length} onClick={() => window.print()}>Print selected investors</button><button className="primary" onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!printInvestorIds.length} onClick={() => window.print()}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
-            <article className={`paper screenReport investorStatementScreen ${hasVerifiedPaidEntitlement ? "paidReport" : "freeReport"}`}>
+            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your selected statement is complete</h2><p>{selectedReport.hasSelection?selectedReport.title:"No investors selected"} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!selectedReport.hasSelection&&<span className="printSelectionError" role="alert">Select at least one investor to create a statement.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!selectedReport.hasSelection} onClick={() => window.print()}>Print selected investors</button><button className="primary" disabled={!selectedReport.hasSelection} onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!selectedReport.hasSelection} onClick={() => window.print()}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
+            {selectedReport.hasSelection&&<article className={`paper screenReport investorStatementScreen ${hasVerifiedPaidEntitlement ? "paidReport" : "freeReport"}`}>
               {!hasVerifiedPaidEntitlement && <div className="printWatermark" aria-hidden="true">adavi</div>}
-              <StatementExecutive groupName={groupName} statementDate={statementDate} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={investorStatement} assetMix={assetMix} />
-              <section className="screenStatementDetail" aria-labelledby="assets-liabilities-title"><StatementHeading id="assets-liabilities-title" groupName={groupName} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/><InvestorStatementTable statement={investorStatement} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/></section>
+              <StatementExecutive groupName={selectedReport.title} statementDate={statementDate} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} />
+              <section className="screenStatementDetail" aria-labelledby="assets-liabilities-title"><StatementHeading id="assets-liabilities-title" groupName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/><InvestorStatementTable statement={selectedReport.statement} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/></section>
               {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Not tax, legal, accounting, or investment advice</span></footer>}
-            </article>
-            <PrintReport groupName={groupName} statementDate={statementDate} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={printInvestorStatement} assetMix={printAssetMix} paid={hasVerifiedPaidEntitlement} hasPartialOwnership={printRows.some((row)=>effectiveOwnershipPercentage(row)<100)} />
+            </article>}
+            {selectedReport.hasSelection&&<PrintReport groupName={selectedReport.title} statementDate={statementDate} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} paid={hasVerifiedPaidEntitlement} hasPartialOwnership={selectedReport.rows.some((row)=>effectiveOwnershipPercentage(row)<100)} />}
           </section>
         )}
       </div>
