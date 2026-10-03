@@ -209,6 +209,8 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .subscriberBenefits li span { color:#a77b20; font-size:19px; font-weight:900; line-height:1.35; }
 .subscriptionPrices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-bottom:26px; }
 .subscriptionPrices>div { padding:22px; border:1px solid #aab4c2; border-radius:16px; background:#f7f9fc; }
+.subscriptionPrices .annualPrice { border-color:var(--gold); background:var(--gold); }
+.subscriptionPrices .annualPrice p span,.subscriptionPrices .annualPrice small { color:#183b6b; }
 .subscriptionPrices p { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; margin:0; color:#183b6b; }
 .subscriptionPrices p span { color:#52647b; font-size:13px; font-weight:800; letter-spacing:.08em; }
 .subscriptionPrices strong { color:#183b6b; font-size:clamp(28px,5vw,38px); line-height:1; font-variant-numeric:tabular-nums lining-nums; }
@@ -292,7 +294,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .statementMeta strong,.statementMeta em { padding-left:12px; border-left:1px solid #aab4c2; font-size:13px; font-style:normal; }
 .statementIdentity { padding:34px 46px 24px; }
 .statementIdentity p,.statementDetailHead>div>span,.executiveSectionTitle span { margin:0; color:#d9ab43; font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-.statementIdentity h1 { margin:8px 0; color:#183b6b; font-size:36px; line-height:1.05; }
+.statementIdentity h1 { margin:8px 0; color:#183b6b; font-size:36px; line-height:1.05; text-transform:uppercase; }
 .statementIdentity>span { color:#718096; font-size:13px; }
 .wealthOverview { display:grid; grid-template-columns:minmax(260px,.8fr) 1.2fr; margin:0 46px 34px; border:1px solid #e5e9ef; background:#fff; }
 .primaryWealth { display:flex; flex-direction:column; justify-content:center; padding:28px; color:#fff; background:#183b6b; }

@@ -21,6 +21,8 @@ export type ParsedRow = {
   sourceCurrentNetWorth?: number | null; sourcePreviousNetWorth?: number | null;
   sourceCurrentDate?: string; sourcePreviousDate?: string;
   sourceCategoryControlCurrent?: number | null; sourceCategoryControlPrevious?: number | null;
+  sourceFileId?: string; sourceFileName?: string; sourceType?: string;
+  sourcePageOrSheet?: string; sourceRow?: number;
   ocrRowBox?: { x0:number; y0:number; x1:number; y1:number };
 };
 type Progress = (message: string) => void;
@@ -31,7 +33,8 @@ const prohibited = /\b(equity|retained earnings|net income|income|revenue|expens
 const metadata = /^(?:page(?:\s+\d+)?|date|currency|client id|client number|account number|exchange rate|statement of|balance sheet|current|previous|description|assets? liabilities?|address)(?:\s|:|$)/i;
 
 function id() { return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`; }
-function parseAmount(raw: string) { const cleaned = raw.replace(/[^\d.]/g, ""); const value = Number(cleaned); return cleaned && Number.isFinite(value) ? value : null; }
+export function parseStatementAmount(raw: string) { const negative=/^\s*-|\([^)]*\)/.test(raw);const cleaned=raw.replace(/[^\d.]/g, ""); const value = Number(cleaned); return cleaned && Number.isFinite(value) ? (negative?-value:value) : null; }
+function parseAmount(raw:string){return parseStatementAmount(raw);}
 function cleanLabel(value: string) { return value.replace(/[|•]+/g, " ").replace(/\s{2,}/g, " ").replace(/^[-–—:\s]+|[-–—:\s]+$/g, "").trim(); }
 
 export function inferCategory(description: string, kind: Kind): Category {
@@ -156,27 +159,33 @@ export function parseFinancialText(text: string, source: string): ParsedRow[] {
   return rows;
 }
 
-function normalize(value: unknown) { return String(value ?? "").trim().toLowerCase().replace(/[_-]+/g, " "); }
-export function parseTabularRows(data: unknown[][], source: string): ParsedRow[] {
+function normalize(value: unknown) { return String(value ?? "").trim().toLowerCase().replace(/[._/-]+/g, " ").replace(/\s+/g," ").trim(); }
+const tabularHeaderTerms=["account","account number","account no","description","account type","investment type","institution","holder","current","current value","current balance","market value","fair market value","previous","previous value","previous balance","prior period","asset","liability","category"];
+function headerScore(row:unknown[]){const cells=row.map(normalize);return cells.reduce((score,cell)=>score+(tabularHeaderTerms.some((term)=>cell===term)?1:0),0);}
+export function parseTabularRows(data: unknown[][], source: string, sheetName?:string): ParsedRow[] {
   if (data.length < 2) return [];
-  const headers = data[0].map(normalize);
-  const find = (...names: string[]) => headers.findIndex((h) => names.some((name) => h === name || h.includes(name)));
-  const descriptionIndex = find("description", "account name", "name");
+  const headerIndex=data.reduce((best,row,index)=>headerScore(row)>headerScore(data[best]??[])?index:best,0);
+  const headers = data[headerIndex].map(normalize);
+  const find = (...names: string[]) => headers.findIndex((h) => names.some((name) => h === name));
+  const descriptionIndex = find("description", "account name", "name", "account");
   const holderIndex = find("holder", "entity", "institution", "bank");
-  const accountIndex = find("account type", "account name");
-  const sectionIndex = find("section", "asset / liability", "asset/liability", "type");
+  const accountNumberIndex=find("account number","account no");
+  const accountIndex = find("account type", "investment type");
+  const sectionIndex = find("section", "asset liability", "type");
   const categoryIndex = find("category");
-  const currentIndex = find("current value", "current period", "amount", "balance");
-  const previousIndex = find("previous value", "prior period", "previous", "prior");
+  const currentIndex = find("current value", "current period", "current", "current balance", "market value", "fair market value", "amount", "balance");
+  const previousIndex = find("previous value", "prior period", "previous", "previous balance", "prior");
   const cashIndex = find("cash"); const investmentsIndex = find("investments");
-  if (descriptionIndex < 0 || sectionIndex < 0 || (currentIndex < 0 && cashIndex < 0 && investmentsIndex < 0)) return [];
-  return data.slice(1).flatMap((values) => {
+  if (descriptionIndex < 0 || (currentIndex < 0 && cashIndex < 0 && investmentsIndex < 0)) return [];
+  return data.slice(headerIndex+1).flatMap((values,rowOffset) => {
     const description = String(values[descriptionIndex] ?? "").trim();
     const rawSection = String(values[sectionIndex] ?? "").trim();
-    if (!description || totalLine.test(description) || prohibited.test(description) || !/^(asset|liabilit)/i.test(rawSection)) return [];
-    const kind: Kind = /^liabilit/i.test(rawSection) ? "Liability" : "Asset";
+    if (!description || totalLine.test(description) || prohibited.test(description)) return [];
+    const categoryText=categoryIndex>=0?String(values[categoryIndex]??""):"";
+    const kind: Kind = /^liabilit/i.test(rawSection)||/payable|liabilit|credit card|tax owing/i.test(categoryText) ? "Liability" : "Asset";
     const holder = holderIndex >= 0 ? String(values[holderIndex] ?? "").trim() : "";
     const account = accountIndex >= 0 ? String(values[accountIndex] ?? description).trim() : description;
+    const accountNumber=accountNumberIndex>=0?String(values[accountNumberIndex]??"").trim():"";
     const previous = previousIndex >= 0 ? parseAmount(String(values[previousIndex] ?? "")) : null;
     const result: ParsedRow[] = [];
     const cash = cashIndex >= 0 ? parseAmount(String(values[cashIndex] ?? "")) : null;
@@ -186,13 +195,14 @@ export function parseTabularRows(data: unknown[][], source: string): ParsedRow[]
     if (result.length) return result;
     const current = parseAmount(String(values[currentIndex] ?? "")); if (current === null) return [];
     const rawCategory = String(values[categoryIndex] ?? "").trim();
-    return [makeRow(source, kind, holder, account, description, current, previous, rawCategory ? inferCategory(`${rawCategory} ${description}`, kind) : undefined)];
+    const row=makeRow(source, kind, holder, account, description, current, previous, rawCategory ? inferCategory(`${rawCategory} ${description}`, kind) : undefined);
+    return [{...row,accountNumber:accountNumber||undefined,rawCurrent:Math.abs(current),rawPrevious:previous===null?null:Math.abs(previous),sourceFileName:source,sourceType:sheetName?"spreadsheet":"tabular",sourcePageOrSheet:sheetName,sourceRow:headerIndex+rowOffset+2}];
   });
 }
 
-async function parseSpreadsheet(file: File) { const XLSX = await import("xlsx"); const book = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false }); return book.SheetNames.flatMap((name) => parseTabularRows(XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, defval: "" }), file.name)); }
+async function parseSpreadsheet(file: File) { const XLSX = await import("xlsx"); const book = XLSX.read(await file.arrayBuffer(), { type: "array", cellDates: false }); return book.SheetNames.flatMap((name) => parseTabularRows(XLSX.utils.sheet_to_json<unknown[]>(book.Sheets[name], { header: 1, defval: "", raw:false }), file.name,name)); }
 async function createOcrWorker(progress: Progress) { const { createWorker } = await import("tesseract.js"); return createWorker("eng", 1, { workerPath: "/ocr/worker.min.js", corePath: "/ocr/core", langPath: "/ocr/lang", logger: (m) => { if (m.status === "recognizing text") progress(`Reading scan… ${Math.round((m.progress || 0) * 100)}%`); } }); }
-async function decodeImage(file:File){const bitmap=await createImageBitmap(file);const canvas=document.createElement("canvas");canvas.width=bitmap.width;canvas.height=bitmap.height;const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Image canvas unavailable");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(bitmap,0,0);bitmap.close();return canvas;}
+async function decodeImage(file:File){const bitmap=await createImageBitmap(file,{imageOrientation:"from-image"});const maximumPixels=18_000_000;const scale=Math.min(1,Math.sqrt(maximumPixels/(bitmap.width*bitmap.height)));const canvas=document.createElement("canvas");canvas.width=Math.max(1,Math.round(bitmap.width*scale));canvas.height=Math.max(1,Math.round(bitmap.height*scale));const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Image canvas unavailable");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.imageSmoothingEnabled=true;context.imageSmoothingQuality="high";context.drawImage(bitmap,0,0,canvas.width,canvas.height);bitmap.close();return canvas;}
 function cropCanvas(source:HTMLCanvasElement,y0:number,y1:number){const canvas=document.createElement("canvas");canvas.width=source.width;canvas.height=y1-y0;const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Image canvas unavailable");context.fillStyle="#fff";context.fillRect(0,0,canvas.width,canvas.height);context.drawImage(source,0,y0,source.width,y1-y0,0,0,source.width,y1-y0);return canvas;}
 /** Split a tall multi-page scan only at a substantial near-white horizontal gutter. */
 export function findImageRegionBreaks(pixels:Uint8ClampedArray,width:number,height:number){if(height<=width*1.55)return [0,height];const rowInk=(y:number)=>{let ink=0;for(let x=0;x<width;x+=4){const offset=(y*width+x)*4;if(pixels[offset]<235||pixels[offset+1]<235||pixels[offset+2]<235)ink++;}return ink/Math.ceil(width/4);};const minimum=Math.max(10,Math.round(height*.008));const bands:Array<{start:number;end:number}>=[];let start=-1;for(let y=Math.round(width*.7);y<height-Math.round(width*.25);y++){if(rowInk(y)<.004){if(start<0)start=y;}else if(start>=0){if(y-start>=minimum)bands.push({start,end:y});start=-1;}}if(start>=0&&height-start>=minimum)bands.push({start,end:height});const preferred=bands.filter((band)=>band.start>=height*.45).sort((a,b)=>Math.abs((a.start+a.end)/2-width*1.3)-Math.abs((b.start+b.end)/2-width*1.3))[0];return preferred?[0,Math.round((preferred.start+preferred.end)/2),height]:[0,height];}
@@ -232,4 +242,14 @@ async function parsePdf(file: File, progress: Progress) {
     return rows;
   } finally { await pdf.destroy(); }
 }
-export async function parseDocument(file: File, progress: Progress): Promise<ParsedRow[]> { const extension=file.name.split(".").pop()?.toLowerCase(); if(file.size>10*1024*1024)throw new Error(`${file.name} exceeds the 10 MB limit.`);if(["csv","xlsx","xls"].includes(extension||""))return parseSpreadsheet(file);if(extension==="pdf")return parsePdf(file,progress);if(["jpg","jpeg","png"].includes(extension||""))return parseImage(file,progress);throw new Error(`${file.name} is not a supported statement format.`); }
+export type StatementFileType="pdf"|"image"|"spreadsheet"|"csv";
+const supportedExtensions={pdf:"pdf",jpg:"image",jpeg:"image",png:"image",csv:"csv",xls:"spreadsheet",xlsx:"spreadsheet"} as const;
+const supportedMimes:Record<string,StatementFileType>={"application/pdf":"pdf","image/jpeg":"image","image/png":"image","text/csv":"csv","application/csv":"csv","application/vnd.ms-excel":"spreadsheet","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":"spreadsheet"};
+export async function detectStatementFileType(file:File):Promise<StatementFileType>{
+  const extension=file.name.split(".").pop()?.toLowerCase() as keyof typeof supportedExtensions|undefined;const fromExtension=extension?supportedExtensions[extension]:undefined;const fromMime=supportedMimes[(file.type??"").toLowerCase()];
+  if(!fromExtension&&!fromMime)throw new Error(`${file.name} is not a supported statement format.`);if(fromExtension&&fromMime&&fromExtension!==fromMime)throw new Error(`${file.name} does not match its declared file type.`);
+  const bytes=new Uint8Array((await file.slice(0,8).arrayBuffer()));const ascii=String.fromCharCode(...bytes);let signature:StatementFileType|undefined;
+  if(ascii.startsWith("%PDF-"))signature="pdf";else if(bytes[0]===0x89&&ascii.slice(1,4)==="PNG")signature="image";else if(bytes[0]===0xff&&bytes[1]===0xd8&&bytes[2]===0xff)signature="image";else if(bytes[0]===0x50&&bytes[1]===0x4b)signature="spreadsheet";else if(bytes[0]===0xd0&&bytes[1]===0xcf&&bytes[2]===0x11&&bytes[3]===0xe0)signature="spreadsheet";
+  const declared=fromMime??fromExtension!;if(signature&&signature!==declared)throw new Error(`${file.name} does not match its file contents.`);if(declared!=="csv"&&!signature)throw new Error(`${file.name} has an invalid or unsupported file signature.`);return declared;
+}
+export async function parseDocument(file: File, progress: Progress): Promise<ParsedRow[]> {if(file.size>10*1024*1024)throw new Error(`${file.name} exceeds the 10 MB limit.`);const type=await detectStatementFileType(file);const fileId=id();const parsed=type==="spreadsheet"||type==="csv"?await parseSpreadsheet(file):type==="pdf"?await parsePdf(file,progress):await parseImage(file,progress);return parsed.map((row)=>({...row,sourceFileId:fileId,sourceFileName:file.name,sourceType:type,sourcePageOrSheet:row.sourcePageOrSheet??(row.sourcePage?`Page ${row.sourcePage}`:undefined)}));}

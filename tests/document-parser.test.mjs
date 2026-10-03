@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-const { findImageRegionBreaks, parseDocument, parseFinancialText, parseTabularRows, parseWoodGundyPortfolioPages } = await import("../app/lib/documentParser.ts");
+const { detectStatementFileType, findImageRegionBreaks, parseDocument, parseFinancialText, parseStatementAmount, parseTabularRows, parseWoodGundyPortfolioPages } = await import("../app/lib/documentParser.ts");
 const { applyOwnershipToRow } = await import("../app/lib/reportData.ts");
 const { woodGundyExpectedAccounts, woodGundyPortfolioPages } = await import("./fixtures/cibc-wood-gundy.fixture.ts");
 
@@ -83,6 +83,30 @@ test("splits cash and investments columns without their combined total", () => {
 test("enforces limits and rejects unsupported formats", async () => {
   await assert.rejects(() => parseDocument({ name: "large.csv", size: 10 * 1024 * 1024 + 1 }, () => {}), /exceeds the 10 MB limit/);
   await assert.rejects(() => parseDocument({ name: "statement.docx", size: 100 }, () => {}), /not a supported statement format/);
+});
+
+test("validates every advertised file type using MIME, extension, and signature",async()=>{
+  const file=(name,type,bytes)=>new File([Uint8Array.from(bytes)],name,{type});
+  assert.equal(await detectStatementFileType(file("text.pdf","application/pdf",[0x25,0x50,0x44,0x46,0x2d])),"pdf");
+  assert.equal(await detectStatementFileType(file("scan.jpg","image/jpeg",[0xff,0xd8,0xff,0xe0])),"image");
+  assert.equal(await detectStatementFileType(file("scan.jpeg","image/jpeg",[0xff,0xd8,0xff,0xe0])),"image");
+  assert.equal(await detectStatementFileType(file("scan.png","image/png",[0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a])),"image");
+  assert.equal(await detectStatementFileType(new File(["Account,Current"],"rows.csv",{type:"text/csv"})),"csv");
+  assert.equal(await detectStatementFileType(file("rows.xlsx","application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",[0x50,0x4b,0x03,0x04])),"spreadsheet");
+  assert.equal(await detectStatementFileType(file("rows.xls","application/vnd.ms-excel",[0xd0,0xcf,0x11,0xe0,0xa1,0xb1,0x1a,0xe1])),"spreadsheet");
+  await assert.rejects(()=>detectStatementFileType(file("fake.pdf","application/pdf",[1,2,3,4])),/invalid or unsupported file signature/);
+  await assert.rejects(()=>detectStatementFileType(file("fake.png","application/pdf",[0x89,0x50,0x4e,0x47])),/declared file type/);
+});
+
+test("finds introductory spreadsheet headers and accepts a current-only period",()=>{
+  const rows=parseTabularRows([
+    ["Portfolio statement"],[],
+    ["Account No.","Description","Account Type","Institution","Current Balance","Category"],
+    ["001234","Operating cash","Cash","Example Bank","$ 12,345.67","Asset"],
+    ["","Total","","","$ 12,345.67",""]
+  ],"accounts.xlsx","Accounts");
+  assert.equal(rows.length,1);assert.equal(rows[0].accountNumber,"001234");assert.equal(rows[0].current,12_345.67);assert.equal(rows[0].previous,null);assert.equal(rows[0].sourcePageOrSheet,"Accounts");assert.equal(rows[0].sourceRow,4);
+  assert.equal(parseStatementAmount("($1,250.50)"),-1250.5);
 });
 
 test("extracts one Wood Gundy asset per account from Total Portfolio Value", () => {
