@@ -200,15 +200,23 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .summary.networth { background:#102d5b; color:#fff; border-color:#081b39; }
 .summary.assets span,.summary.liabilities span { color:#172235; }.summary.networth span { color:#fff; }
 .printWatermark,.printBranding { display:none; }
-.upgradeBackdrop { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(3,10,20,.78); }
-.upgradePanel { position:relative; width:min(620px,100%); padding:34px; border:1px solid rgba(212,170,81,.55); border-radius:20px; background:#101f34; box-shadow:0 30px 100px #000; }
-.upgradePanel h2 { margin:10px 40px 10px 0; }.upgradePanel p,.upgradePanel li { color:#b4c0d0; line-height:1.5; }
+.upgradeBackdrop { position:fixed; inset:0; z-index:100; display:grid; place-items:center; padding:20px; background:rgba(3,10,20,.72); }
+.upgradePanel { width:min(600px,100%); padding:clamp(28px,5vw,48px); border:1px solid rgba(212,170,81,.7); border-radius:24px; color:#183b6b; background:#fff; box-shadow:0 22px 60px rgba(8,21,37,.24); }
+.upgradePanel h2 { margin:0 0 30px; color:#183b6b; font-size:clamp(24px,4vw,32px); line-height:1.15; letter-spacing:-.02em; }
+.upgradePanel h2::after { content:""; display:block; width:46px; height:3px; margin-top:14px; border-radius:3px; background:#d9ab43; }
+.subscriberBenefits { display:grid; gap:16px; margin:0 0 32px; padding:0; list-style:none; }
+.subscriberBenefits li { display:grid; grid-template-columns:24px minmax(0,1fr); gap:12px; align-items:start; color:#183b6b; font-size:17px; font-weight:650; line-height:1.45; }
+.subscriberBenefits li span { color:#a77b20; font-size:19px; font-weight:900; line-height:1.35; }
+.subscriptionPrices { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-bottom:26px; }
+.subscriptionPrices>div { padding:22px; border:1px solid #aab4c2; border-radius:16px; background:#f7f9fc; }
+.subscriptionPrices p { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; margin:0; color:#183b6b; }
+.subscriptionPrices p span { color:#52647b; font-size:13px; font-weight:800; letter-spacing:.08em; }
+.subscriptionPrices strong { color:#183b6b; font-size:clamp(28px,5vw,38px); line-height:1; font-variant-numeric:tabular-nums lining-nums; }
+.subscriptionPrices small { display:block; margin-top:9px; color:#52647b; font-size:15px; }
+.checkoutStatus { padding:14px 16px; border:1px solid #ccd3dd; border-radius:12px; color:#183b6b; background:#e9edf3; font-weight:750; line-height:1.4; }
+.securityExplanation { margin:16px 0 0; color:#52647b; font-size:14px; line-height:1.65; }
 .dialogClose { position:absolute; right:18px; top:14px; border:0; background:transparent; color:white; font-size:30px; }
-.priceGrid { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:24px 0; }
-.priceGrid div { display:flex; flex-direction:column; gap:5px; padding:20px; border:1px solid #526683; border-radius:12px; background:#172944; }
-.priceGrid strong { color:var(--gold2); font-size:24px; }.priceGrid span { color:#b4c0d0; }
-.lockedNotice { margin-top:22px; padding:16px; border:1px solid #8c733f; border-radius:10px; background:#2a261b; }
-.lockedNotice p { margin:6px 0 0; }
+@media (max-width:520px) { .upgradeBackdrop { padding:12px; }.upgradePanel { padding:26px 20px; border-radius:18px; }.upgradePanel h2 { margin-bottom:24px; }.subscriptionPrices { grid-template-columns:1fr; }.subscriptionPrices>div { padding:18px; } }
 
 @media print {
   .summary.assets { background:#d4aa51!important; color:#081525!important; border:2px solid #9c762d; }
