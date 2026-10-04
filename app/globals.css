@@ -175,7 +175,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .accountTable tfoot th,.accountTable tfoot td { padding-left:24px; padding-right:24px; border-top:2px solid #8492a6; font-weight:800; background:#f4f6f8; }
 .consolidatedTotal { margin-top:24px; }
 
-@page { size:A4 portrait; margin:11mm 12mm 13mm; }
+@page { size:A4 portrait; margin:12mm; }
 @media print {
   html,body { width:auto!important; height:auto!important; margin:0!important; padding:0!important; }
   main { width:auto; margin:0; padding:0; background:#fff!important; color:#172235!important; }
@@ -190,6 +190,29 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   .mix div { background:#edf0f4!important; border:1px solid #687488; height:12px; }
   .mix i { background:#d1a94f!important; border-right:2px solid #725211; }
   .disclaimer { background:#f3f5f7!important; border:1px solid #687488; }
+}
+
+/* Three-part net-worth report: overview, category summary, then detail. */
+.reportPageHeader { display:grid; grid-template-columns:1fr auto; gap:18px 28px; padding:30px 46px 22px; border-top:3px solid #d9ab43; border-bottom:1px solid #aab4c2; color:#183b6b; background:#fff; }
+.reportBrand { display:flex; align-items:center; justify-content:space-between; grid-column:1/-1; }.reportBrand .printLogo { width:132px; }.reportBrand span { color:#a77b20; font-size:11px; font-weight:800; letter-spacing:.08em; text-transform:uppercase; }
+.reportPageIdentity p { margin:0 0 5px; color:#183b6b; font-size:15px; font-weight:800; text-transform:uppercase; }.reportPageIdentity h1 { margin:0; color:#183b6b; font-size:32px; line-height:1.08; }
+.reportPageHeader dl { display:flex; align-items:end; gap:22px; margin:0; }.reportPageHeader dt { color:#718096; font-size:10px; font-weight:800; text-transform:uppercase; }.reportPageHeader dd { margin:4px 0 0; color:#183b6b; font-weight:700; white-space:nowrap; }
+.netWorthSummary { padding-bottom:32px; color:#183b6b; background:#fff; }.summaryTable { width:calc(100% - 92px); margin:28px 46px 0; table-layout:fixed; border-collapse:collapse; }.summaryAmountColumn { width:23%; }.summaryTable th,.summaryTable td { padding:11px 14px; border-bottom:1px solid #e5e9ef; }.summaryTable th { color:#183b6b; text-align:left; text-transform:none; }.summaryTable td,.summaryTable thead th:not(:first-child) { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums lining-nums; }.summaryTable thead th { color:#718096; font-size:11px; text-transform:uppercase; }.summaryTable .summarySection th { color:#183b6b; background:#e5e9ef; font-size:13px; font-weight:800; text-transform:uppercase; }.summaryTable .summaryTotal th,.summaryTable .summaryTotal td { border-top:2px solid #d9ab43; font-weight:800; }.summaryTable tfoot th,.summaryTable tfoot td { padding-top:15px; padding-bottom:15px; border:2px solid #d9ab43; color:#183b6b; font-size:16px; font-weight:900; }
+.ownershipCell strong,.periodCell strong { display:block; }.ownershipCell small,.periodCell small { display:block; margin-top:3px; color:#8492a6; font-size:.8em; font-weight:500; }.ownershipCell .partialOwnership { color:#a77b20; font-weight:800; }.periodCell { text-align:right; white-space:nowrap; }.periodCell strong { color:#183b6b; font-weight:700; }.periodCell small { text-align:right; font-variant-numeric:tabular-nums lining-nums; }
+@media (max-width:760px) { .reportPageHeader { grid-template-columns:1fr; padding:24px; }.reportPageHeader dl { flex-wrap:wrap; }.summaryTable { width:calc(100% - 48px); margin-left:24px; margin-right:24px; }.summaryAmountColumn { width:28%; } }
+
+@media print {
+  html,body { width:auto!important; height:auto!important; margin:0!important; padding:0!important; }
+  .reportPage { width:auto!important; height:auto!important; min-height:0!important; max-height:none!important; overflow:visible!important; transform:none!important; }
+  .reportPageHeader { grid-template-columns:1fr auto; gap:3mm 8mm; padding:0 0 4mm; border-top:.6mm solid #d9ab43; border-bottom:.2mm solid #aab4c2; }
+  .reportBrand .printLogo { width:31mm; }.reportBrand span { font-size:7.5pt; }.reportPageIdentity p { font-size:8pt; }.reportPageIdentity h1 { font-size:20pt; }.reportPageHeader dl { gap:5mm; }.reportPageHeader dt { font-size:7pt; }.reportPageHeader dd { font-size:8pt; }
+  .overviewPage .wealthOverview { margin-top:7mm; }.overviewPage .primaryWealth { background:#fff!important; border-left:1mm solid #d9ab43; color:#183b6b!important; }.overviewPage .primaryWealth span { color:#a77b20; }.overviewPage .primaryWealth strong { color:#183b6b; font-size:29pt; }
+  .overviewPage .executiveAssetMix { margin-top:7mm; }.overviewPage .executiveMixRow { padding:2mm 0; }
+  .summaryPage .netWorthSummary { padding:0; }.summaryPage .summaryTable { width:100%; margin:7mm 0 0; font-size:9pt; }.summaryPage .summaryTable th,.summaryPage .summaryTable td { padding:2.3mm 3mm; }.summaryPage .summarySection th { font-size:9pt; }.summaryPage .summaryTable tfoot th,.summaryPage .summaryTable tfoot td { font-size:11pt; }
+  .detailedPage .reportPageHeader { margin-bottom:4mm; }
+  .periodGroupRow th small { color:#e5e9ef; font-size:7.5pt; }
+  .printInvestorStatementTable .ownershipCell strong,.printInvestorStatementTable .periodCell strong { font-size:9.5pt; }.printInvestorStatementTable .ownershipCell small,.printInvestorStatementTable .periodCell small { font-size:8pt; }
+  .printPageFooter { margin-top:4mm; }
 }
 
 /* Report hierarchy labels remain left-aligned while financial columns stay right-aligned. */
