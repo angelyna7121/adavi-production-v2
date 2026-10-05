@@ -2,6 +2,7 @@ export type Kind = "Asset" | "Liability";
 
 export type ParsedRow = {
   id: string;
+  investorId: string;
   include: boolean;
   investor: string;
   category: string;
@@ -11,6 +12,7 @@ export type ParsedRow = {
   previous: number | null;
   kind: Kind;
   source: string;
+  ownership?: number;
 };
 
 type Progress = (message: string) => void;
@@ -22,6 +24,10 @@ const accountWords = /margin|rrsp|spousal rrsp|tfsa|rrif|lira|lif|resp|chequ|sav
 
 function id() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+}
+
+function investorId(name: string) {
+  return `investor-${name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "primary"}`;
 }
 
 function parseAmount(raw: string): number | null {
@@ -80,7 +86,7 @@ export function parseFinancialText(text: string, source: string): ParsedRow[] {
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push({
-      id: id(), include: true, investor: "Primary Investor",
+      id: id(), include: true, investorId: investorId("Primary Investor"), investor: "Primary Investor",
       category: inferCategory(description, kind), institution,
       description, current: normalizedCurrent, previous: normalizedPrevious,
       kind, source,
@@ -115,6 +121,7 @@ function parseTabularRows(data: unknown[][], source: string): ParsedRow[] {
     const prior = previousIndex >= 0 ? parseAmount(String(values[previousIndex] ?? "")) : null;
     return [{
       id: id(), include: true,
+      investorId: investorId(String(values[investorIndex] ?? "Primary Investor").trim() || "Primary Investor"),
       investor: String(values[investorIndex] ?? "Primary Investor").trim() || "Primary Investor",
       category: String(values[categoryIndex] ?? "").trim() || inferCategory(description, kind),
       institution: String(values[institutionIndex] ?? "").trim(),
