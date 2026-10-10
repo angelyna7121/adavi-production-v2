@@ -1,15 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
 import { formatPeriodAmount } from "./lib/ocrFinancialParser";
 import { applyOwnershipToRow, assignInvestor, assignStatement, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, deriveSelectedInvestorReport, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
+import { formatStatementAmount, paginateMeasuredStatement, statementPresentation } from "./lib/statementPresentation";
 import { reportPeriodLabels } from "./lib/reportPeriods";
 
 type Step = "upload" | "review" | "report";
 type Investor = { investorId: string; name: string; statements: StatementRecord[] };
 type RowEditor = { mode:"add"|"duplicate"|"edit"; sourceRowId?:string; draft:Row };
+
+const ReportCurrency = createContext("CAD");
+function useStatementMoney(){const currency=useContext(ReportCurrency);return (value:number)=>formatStatementAmount(value,currency);}
 
 const sampleRows: Row[] = [
   { id: "1", include: true, investorId: "sample-a", investor: "Alex Morgan", statementId:"sample-statement-1", ownershipPercentage:100, rawCurrent:42500, rawPrevious:null, category: "Cash & Bank Accounts", holder: "Sample Bank", accountName: "Chequing", institution: "Sample Bank", description: "CAD Chequing", current: 42500, previous: null, kind: "Asset", source: "alex-bank.csv" },
@@ -59,7 +63,12 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
   const currentPeriodLabel = periodLabels.current;
   const previousPeriodLabel = periodLabels.previous;
   const assignmentReconciliations = useMemo(() => calculateAssignmentReconciliations(rows), [rows]);
-  const selectedReport = useMemo(() => deriveSelectedInvestorReport(rows, investorList, printInvestorIds), [rows, investorList, printInvestorIds]);
+  const selectedReport = useMemo(() => {
+    const report = deriveSelectedInvestorReport(rows, investorList, printInvestorIds);
+    const statement = statementPresentation(report.statement);
+    const assetMix = statement.sections[0].categories.map(category => ({category: category.category, total: category.currentShare, percentage: statement.currentShareAssets ? category.currentShare / statement.currentShareAssets * 100 : 0})).sort((a, b) => b.total - a.total);
+    return {...report, statement, assetMix};
+  }, [rows, investorList, printInvestorIds]);
 
   async function acceptFiles(list: FileList | File[]) {
     const selected = Array.from(list);
@@ -91,6 +100,16 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     setError(errors.length ? `Some files could not be read: ${errors.join(" ")}` : "");
     setRows((current) => [...current, ...parsed]);
     setInvestorList((current) => current.map((investor) => investor.investorId === activeInvestorId ? { ...investor, statements: [...investor.statements, ...completedStatements] } : investor));
+  }
+
+  async function printStatement() {
+    await document.fonts.ready;
+    await new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve())));
+    if (!document.querySelector('.printReport[data-pagination-ready="true"]')) {
+      setError("The statement is still being laid out, or an account is too tall to print. Review the report and try again.");
+      return;
+    }
+    window.print();
   }
 
   function loadSample() {
@@ -333,8 +352,8 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
         )}
 
         {step === "report" && (
-          <section className="reportArea">
-            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your selected statement is complete</h2><p>{selectedReport.hasSelection?selectedReport.title:"No investors selected"} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!selectedReport.hasSelection&&<span className="printSelectionError" role="alert">Select at least one investor to create a statement.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!selectedReport.hasSelection} onClick={() => window.print()}>Print selected investors</button><button className="primary" disabled={!selectedReport.hasSelection} onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!selectedReport.hasSelection} onClick={() => window.print()}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
+          <ReportCurrency.Provider value={currency}><section className="reportArea">
+            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your selected statement is complete</h2><p>{selectedReport.hasSelection?selectedReport.title:"No investors selected"} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!selectedReport.hasSelection&&<span className="printSelectionError" role="alert">Select at least one investor to create a statement.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Print selected investors</button><button className="primary" disabled={!selectedReport.hasSelection} onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
             {selectedReport.hasSelection&&<article className={`paper screenReport investorStatementScreen ${hasVerifiedPaidEntitlement ? "paidReport" : "freeReport"}`}>
               {!hasVerifiedPaidEntitlement && <div className="printWatermark" aria-hidden="true">adavi</div>}
               <StatementExecutive reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} />
@@ -343,7 +362,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
               {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Not tax, legal, accounting, or investment advice</span></footer>}
             </article>}
             {selectedReport.hasSelection&&<PrintReport reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} paid={hasVerifiedPaidEntitlement} hasPartialOwnership={selectedReport.rows.some((row)=>effectiveOwnershipPercentage(row)<100)} />}
-          </section>
+          </section></ReportCurrency.Provider>
         )}
       </div>
       {rowEditor&&<RowEditorDialog editor={rowEditor} investors={investorList} statements={statements} categories={categoriesFor(rowEditor.draft.kind)} error={rowEditorError} onAddCategory={(name)=>{const category=addCustomCategory(rowEditor.draft.kind,name);if(category)patchEditor({category});return category;}} onPatch={patchEditor} onRaw={patchEditorRaw} onOwnership={patchEditorOwnership} onCancel={()=>{setSelectedRowId(rowEditor.sourceRowId??selectedRowId);setRowEditor(null);setRowEditorError("");}} onSave={saveRowEditor}/>}
@@ -365,33 +384,75 @@ function PrintLogo(){return <div className="printLogo"><Image src="/adavi-logo.s
 function ownership(value:number){return `${value.toLocaleString("en-CA",{maximumFractionDigits:2})}%`;}
 
 function ReportPageHeader({label,title,reportName,currency,currentLabel,previousLabel}:{label:string;title:string;reportName:string;currency:string;currentLabel:string;previousLabel:string}){
-  return <header className="reportPageHeader"><div className="reportBrand"><PrintLogo/><span>{label}</span></div><div className="reportPageIdentity"><p>{reportName}</p><h1>{title}</h1></div><dl><div><dt>Current</dt><dd>{currentLabel}</dd></div><div><dt>Previous</dt><dd>{previousLabel}</dd></div><div><dt>Currency</dt><dd>{currency}</dd></div></dl></header>;
+  return <header className="reportPageHeader"><div className="reportBrand"><PrintLogo/><span aria-hidden="true">{label === "Net Worth Overview" ? "Private wealth statement" : ""}</span></div><div className="reportPageIdentity"><p>{reportName.toLocaleUpperCase("en-CA")}</p><h1>{title}</h1></div><dl><div><dt>Current</dt><dd>{currentLabel}</dd></div><div><dt>Previous</dt><dd>{previousLabel}</dd></div><div><dt>Currency</dt><dd>{currency}</dd></div></dl></header>;
 }
 
 function StatementExecutive({reportName,currency,currentLabel,previousLabel,statement,assetMix}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>}){
+  const money=useStatementMoney();
   const change=statement.currentShareNetWorth-statement.previousShareNetWorth;
-  return <section className="statementExecutive overviewContent"><ReportPageHeader label="Net Worth Overview" title="Net Worth Overview" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/><div className="wealthOverview"><div className="primaryWealth"><span>Current net worth</span><strong>{money(statement.currentShareNetWorth)}</strong></div><dl><div><dt>Previous net worth</dt><dd>{money(statement.previousShareNetWorth)}</dd></div><div><dt>Change in net worth</dt><dd>{money(change)}</dd></div><div><dt>Current total assets</dt><dd>{money(statement.currentShareAssets)}</dd></div><div><dt>Current total liabilities</dt><dd>{money(statement.currentShareLiabilities)}</dd></div></dl></div><section className="executiveAssetMix" aria-label="Asset composition"><div className="executiveSectionTitle"><div><span>Confirmed assets</span><h2>Asset Composition</h2></div></div><div className="executiveMixRows">{assetMix.map((entry)=><div className="executiveMixRow" key={entry.category}><strong>{entry.category}</strong><div className="executiveMixTrack"><i style={{width:`${entry.percentage}%`}}/></div><span>{money(entry.total)}</span><em>{entry.percentage.toFixed(1)}%</em></div>)}</div></section></section>;
+  const debtRatio=statement.currentShareAssets ? statement.currentShareLiabilities/statement.currentShareAssets*100 : 0;
+  return <section className="statementExecutive overviewContent">
+    <ReportPageHeader label="Net Worth Overview" title="Net Worth Overview" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/>
+    <div className="wealthOverview"><div className="primaryWealth"><span>Current net worth</span><strong>{money(statement.currentShareNetWorth)}</strong></div><dl><div><dt>Previous net worth</dt><dd>{money(statement.previousShareNetWorth)}</dd></div><div><dt>Change in net worth</dt><dd>{money(change)}</dd></div></dl></div>
+    <div className="overviewBalanceCards"><div><span>Total assets</span><strong>{money(statement.currentShareAssets)}</strong></div><div><span>Total liabilities</span><strong>{money(statement.currentShareLiabilities)}</strong></div></div>
+    <section className="executiveAssetMix" aria-label="Asset composition"><div className="executiveSectionTitle"><h2>How the portfolio is positioned</h2><small>Share of current assets</small></div>
+      <div className="compositionBar" aria-hidden="true">{assetMix.map((entry,index)=><i key={entry.category} className={`mixTone${index%6}`} style={{width:`${Math.max(0,entry.percentage)}%`}}/>)}</div>
+      <div className="executiveMixRows">{assetMix.map((entry,index)=><div className="executiveMixRow" key={entry.category}><i className={`mixTone${index%6}`} aria-hidden="true"/><strong>{entry.category}</strong><em>{entry.percentage.toFixed(1)}%</em></div>)}</div>
+      <div className="compositionBalance"><div><span>Net worth / assets</span><strong>{(statement.currentShareAssets ? statement.currentShareNetWorth/statement.currentShareAssets*100 : 0).toFixed(1)}%</strong></div><div><span>Liabilities / assets</span><strong>{debtRatio.toFixed(1)}%</strong></div></div>
+    </section>
+  </section>;
 }
 
-function StatementHeading({id,reportName,currency,currentLabel,previousLabel}:{id?:string;reportName:string;currency:string;currentLabel:string;previousLabel:string}){return <div id={id}><ReportPageHeader label="Detailed Statement" title="Net Worth Report" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/></div>;}
+function StatementHeading({id,reportName,currency,currentLabel,previousLabel}:{id?:string;reportName:string;currency:string;currentLabel:string;previousLabel:string}){return <div id={id}><ReportPageHeader label="Detailed Statement" title="Net Worth Detailed" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/></div>;}
 
 function NetWorthSummary({reportName,currency,currentLabel,previousLabel,statement}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement}){
+  const money=useStatementMoney();
   return <section className="netWorthSummary"><ReportPageHeader label="Net Worth Summary" title="Net Worth Summary" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/><table className="summaryTable"><colgroup><col/><col className="summaryAmountColumn"/><col className="summaryAmountColumn"/></colgroup><thead><tr><th>Category</th><th>Current</th><th>Previous</th></tr></thead>{statement.sections.map((section)=><tbody key={section.kind}><tr className="summarySection"><th colSpan={3}>{section.kind==="Asset"?"Assets":"Liabilities"}</th></tr>{section.categories.map((category)=><tr key={category.category}><th scope="row">{category.category}</th><td>{money(category.currentShare)}</td><td>{money(category.previousShare)}</td></tr>)}<tr className="summaryTotal"><th scope="row">Total {section.kind==="Asset"?"Assets":"Liabilities"}</th><td>{money(section.currentShare)}</td><td>{money(section.previousShare)}</td></tr></tbody>)}<tfoot><tr><th scope="row">Net Worth</th><td>{money(statement.currentShareNetWorth)}</td><td>{money(statement.previousShareNetWorth)}</td></tr></tfoot></table></section>;
 }
 
 function StatementColgroup(){return <colgroup><col className="statementNameColumn"/><col className="statementOwnershipColumn"/><col className="statementPeriodColumn"/><col className="statementPeriodColumn"/></colgroup>;}
-function StatementTableHead({currentLabel,previousLabel}:{currentLabel:string;previousLabel:string}){return <thead><tr className="periodGroupRow"><th scope="col">Investment / Account</th><th scope="col" className="ownershipCell">Ownership</th><th scope="col">Current<small>{currentLabel}</small></th><th scope="col">Previous<small>{previousLabel}</small></th></tr></thead>;}
-function PeriodValues({full,share,partial=false}:{full?:number;share?:number;partial?:boolean}){return <td className="periodCell">{share===undefined?null:<><strong>{money(share)}</strong>{partial&&<small>{money(full??0)}</small>}</>}</td>;}
+function StatementTableHead(){return <thead><tr className="periodGroupRow"><th scope="col">Investment / Account</th><th scope="col" className="ownershipCell">Ownership</th><th scope="col">Current</th><th scope="col">Previous</th></tr></thead>;}
+function PeriodValues({full,share,partial=false}:{full?:number;share?:number;partial?:boolean}){const money=useStatementMoney();return <td className="periodCell">{share===undefined?null:<><strong>{money(share)}</strong>{partial&&<small>{money(full??0)}</small>}</>}</td>;}
 function StatementValues({row,account=false}:{row:{ownership?:number;currentFull?:number;currentShare?:number;previousFull?:number;previousShare?:number};account?:boolean}){const partial=account&&row.ownership!==undefined&&row.ownership<100;return <><td className="ownershipCell">{account&&row.ownership!==undefined?<><strong className={partial?"partialOwnership":""}>{ownership(row.ownership)}</strong>{partial&&<small>100%</small>}</>:null}</td><PeriodValues full={row.currentFull} share={row.currentShare} partial={partial}/><PeriodValues full={row.previousFull} share={row.previousShare} partial={partial}/></>;}
 
-function InvestorStatementTable({statement,currentLabel,previousLabel}:{statement:InvestorStatement;currentLabel:string;previousLabel:string}){
-  return <div className="investorStatementTableWrap" tabIndex={0} aria-label="Assets and liabilities statement"><table className="investorStatementTable"><StatementColgroup/><StatementTableHead currentLabel={currentLabel} previousLabel={previousLabel}/>{statement.sections.map((section)=><tbody key={section.kind}><tr className="statementSectionRow"><th colSpan={4} scope="rowgroup">{section.kind === "Asset"?"Assets":"Liabilities"}</th></tr>{section.categories.map((category)=><FragmentCategory category={category} key={category.category}/>)}</tbody>)}<tfoot><tr className="statementGrandTotal"><th scope="row">Total Assets</th><StatementValues row={{currentFull:statement.currentFullAssets,currentShare:statement.currentShareAssets,previousFull:statement.previousFullAssets,previousShare:statement.previousShareAssets}}/></tr><tr className="statementGrandTotal"><th scope="row">Total Liabilities</th><StatementValues row={{currentFull:statement.currentFullLiabilities,currentShare:statement.currentShareLiabilities,previousFull:statement.previousFullLiabilities,previousShare:statement.previousShareLiabilities}}/></tr><tr className="statementNetWorth"><th scope="row">Net Worth</th><StatementValues row={{currentFull:statement.currentFullNetWorth,currentShare:statement.currentShareNetWorth,previousFull:statement.previousFullNetWorth,previousShare:statement.previousShareNetWorth}}/></tr></tfoot></table></div>;
+function InvestorStatementTable({statement}:{statement:InvestorStatement;currentLabel:string;previousLabel:string}){
+  return <div className="investorStatementTableWrap" tabIndex={0} aria-label="Assets and liabilities statement"><table className="investorStatementTable"><StatementColgroup/><StatementTableHead/>{statement.sections.map((section)=><tbody key={section.kind}><tr className="statementSectionRow"><th colSpan={4} scope="rowgroup">{section.kind === "Asset"?"Assets":"Liabilities"}</th></tr>{section.categories.map((category)=><FragmentCategory category={category} key={category.category}/>)}</tbody>)}<tfoot><tr className="statementGrandTotal"><th scope="row">Total Assets</th><StatementValues row={{currentFull:statement.currentFullAssets,currentShare:statement.currentShareAssets,previousFull:statement.previousFullAssets,previousShare:statement.previousShareAssets}}/></tr><tr className="statementGrandTotal"><th scope="row">Total Liabilities</th><StatementValues row={{currentFull:statement.currentFullLiabilities,currentShare:statement.currentShareLiabilities,previousFull:statement.previousFullLiabilities,previousShare:statement.previousShareLiabilities}}/></tr><tr className="statementNetWorth"><th scope="row">Net Worth</th><StatementValues row={{currentFull:statement.currentFullNetWorth,currentShare:statement.currentShareNetWorth,previousFull:statement.previousFullNetWorth,previousShare:statement.previousShareNetWorth}}/></tr></tfoot></table></div>;
 }
 function FragmentCategory({category}:{category:InvestorStatement["sections"][number]["categories"][number]}){return <><tr className="statementCategoryRow"><th colSpan={4} scope="rowgroup">{category.category}</th></tr>{category.accounts.map((account)=><tr className="statementAccountRow" key={account.id}><th scope="row"><strong>{account.name}</strong>{account.holder&&account.holder!==account.name&&<small>{account.holder}</small>}</th><StatementValues row={account} account/></tr>)}<tr className="statementSubtotalRow"><th scope="row">Total {category.category}</th><StatementValues row={category}/></tr></>;}
 
-function PrintFooter({page,total,paid,numbered=true}:{page:number;total:number;paid:boolean;numbered?:boolean}){return <footer className="printPageFooter"><span>{paid?"":"Created with adavi · Not tax, legal, accounting, or investment advice"}</span>{numbered&&<span>Page {page} of {total}</span>}</footer>;}
-function PrintStatementTable({rows,currentLabel,previousLabel}:{rows:InvestorStatementPrintRow[];currentLabel:string;previousLabel:string}){return <table className="investorStatementTable printInvestorStatementTable"><StatementColgroup/><StatementTableHead currentLabel={currentLabel} previousLabel={previousLabel}/><tbody>{rows.map((row)=><tr className={`statementPrintRow statementPrint-${row.level}`} key={row.key}><th scope="row">{row.label}{row.holder&&row.holder!==row.label&&<small>{row.holder}</small>}</th><StatementValues row={row} account={row.level==="account"}/></tr>)}</tbody></table>;}
-function PrintReport({reportName,currency,currentLabel,previousLabel,statement,assetMix,paid,hasPartialOwnership}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;paid:boolean;hasPartialOwnership:boolean}){
-  const schedulePages=paginateInvestorStatement(statement);const totalPages=schedulePages.length+2;const branding=paid?"paidPrint":"freePrint";
-  return <div className={`printReport ${branding}`}><section className="printPage reportPage overviewPage">{!paid&&<div className="pageWatermark">adavi</div>}<StatementExecutive reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement} assetMix={assetMix}/><PrintFooter page={1} total={totalPages} paid={paid} numbered={false}/></section><section className="printPage reportPage summaryPage">{!paid&&<div className="pageWatermark">adavi</div>}<NetWorthSummary reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement}/><PrintFooter page={2} total={totalPages} paid={paid}/></section>{schedulePages.map((rows,index)=><section className="printPage reportPage detailedPage" key={`statement-${index}`}>{!paid&&<div className="pageWatermark">adavi</div>}<StatementHeading reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/><PrintStatementTable rows={rows} currentLabel={currentLabel} previousLabel={previousLabel}/>{hasPartialOwnership&&index===0&&<p className="printOwnershipNote">Gold ownership and the first amount show the included investor share; the muted second line shows the corresponding 100% value.</p>}<PrintFooter page={index+3} total={totalPages} paid={paid}/></section>)}</div>;
+function PrintFooter({page,total,paid,type}:{page:number;total:number;paid:boolean;type:string}){return <footer className="printPageFooter"><div><strong>{type}</strong>{!paid&&<small>Created with adavi · Not tax, legal, accounting, or investment advice</small>}</div><span>Page {page} of {total}</span></footer>;}
+function PrintStatementTable({rows}:{rows:InvestorStatementPrintRow[]}){return <table className="investorStatementTable printInvestorStatementTable"><StatementColgroup/><StatementTableHead/><tbody>{rows.map((row)=><tr className={`statementPrintRow statementPrint-${row.level}`} key={row.key}><th scope="row">{row.label}{row.holder&&row.holder!==row.label&&<small>{row.holder}</small>}</th><StatementValues row={row} account={row.level==="account"}/></tr>)}</tbody></table>;}
+function PrintReport({reportName,currency,currentLabel,previousLabel,statement,assetMix,paid}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;paid:boolean;hasPartialOwnership:boolean}){
+  const allRows=useMemo(()=>paginateInvestorStatement(statement,Number.MAX_SAFE_INTEGER).flat(),[statement]);
+  const measurement=useRef<HTMLElement>(null);
+  const [layout,setLayout]=useState<{source:InvestorStatementPrintRow[];pages:InvestorStatementPrintRow[][];error?:string}|null>(null);
+  useEffect(()=>{
+    let cancelled=false;
+    const measure=()=>{
+      if(cancelled||!measurement.current)return;
+      const root=measurement.current;
+      const heights=Array.from(root.querySelectorAll("tbody tr"),row=>row.getBoundingClientRect().height);
+      const header=root.querySelector(".reportPageHeader")!.getBoundingClientRect().height;
+      const columns=root.querySelector("thead")!.getBoundingClientRect().height;
+      const footer=root.querySelector(".printPageFooter")!.getBoundingClientRect().height;
+      // A4 minus 10mm top and 12mm bottom; reserve the table/footer gaps and rounding slack.
+      const capacity=275*96/25.4-header-columns-footer-12*96/25.4;
+      try { setLayout({source:allRows,pages:paginateMeasuredStatement(allRows,heights,capacity)}); }
+      catch(reason){setLayout({source:allRows,pages:[],error:reason instanceof Error?reason.message:"Unable to paginate statement."});}
+    };
+    document.fonts.ready.then(()=>{if(!cancelled)requestAnimationFrame(measure);});
+    return ()=>{cancelled=true;};
+  },[allRows,reportName,currency,currentLabel,previousLabel,paid]);
+  const schedulePages=layout?.source===allRows?layout.pages:[];
+  const branding=paid?"paidPrint":"freePrint";
+  const heading=<StatementHeading reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/>;
+  return <>
+    {layout?.error&&<p role="alert" className="printSelectionError">{layout.error}</p>}
+    <div className={`printReport ${branding}`} aria-hidden="true" data-pagination-ready={layout?.source===allRows&&!layout.error}>
+      <section className="printPage reportPage overviewPage">{!paid&&<div className="pageWatermark">adavi</div>}<StatementExecutive reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement} assetMix={assetMix}/><PrintFooter page={1} total={1} paid={paid} type="Net Worth Overview"/></section>
+      <section className="printPage reportPage summaryPage">{!paid&&<div className="pageWatermark">adavi</div>}<NetWorthSummary reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement}/><PrintFooter page={1} total={1} paid={paid} type="Net Worth Summary"/></section>
+      {schedulePages.map((rows,index)=><section className="printPage reportPage detailedPage" key={`statement-${index}`}>{!paid&&<div className="pageWatermark">adavi</div>}{heading}<PrintStatementTable rows={rows}/><PrintFooter page={index+1} total={schedulePages.length} paid={paid} type="Net Worth Detailed"/></section>)}
+    </div>
+    <section ref={measurement} className="statementMeasurement printReport" aria-hidden="true">{heading}<PrintStatementTable rows={allRows}/><PrintFooter page={1} total={1} paid={paid} type="Net Worth Detailed"/></section>
+  </>;
 }

@@ -175,7 +175,7 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .accountTable tfoot th,.accountTable tfoot td { padding-left:24px; padding-right:24px; border-top:2px solid #8492a6; font-weight:800; background:#f4f6f8; }
 .consolidatedTotal { margin-top:24px; }
 
-@page { size:A4 portrait; margin:12mm; }
+@page { size:A4 portrait; margin:10mm 12mm 12mm; }
 @media print {
   html,body { width:auto!important; height:auto!important; margin:0!important; padding:0!important; }
   main { width:auto; margin:0; padding:0; background:#fff!important; color:#172235!important; }
@@ -200,20 +200,6 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .netWorthSummary { padding-bottom:32px; color:#183b6b; background:#fff; }.summaryTable { width:calc(100% - 92px); margin:28px 46px 0; table-layout:fixed; border-collapse:collapse; }.summaryAmountColumn { width:23%; }.summaryTable th,.summaryTable td { padding:11px 14px; border-bottom:1px solid #e5e9ef; }.summaryTable th { color:#183b6b; text-align:left; text-transform:none; }.summaryTable td,.summaryTable thead th:not(:first-child) { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums lining-nums; }.summaryTable thead th { color:#718096; font-size:11px; text-transform:uppercase; }.summaryTable .summarySection th { color:#183b6b; background:#e5e9ef; font-size:13px; font-weight:800; text-transform:uppercase; }.summaryTable .summaryTotal th,.summaryTable .summaryTotal td { border-top:2px solid #d9ab43; font-weight:800; }.summaryTable tfoot th,.summaryTable tfoot td { padding-top:15px; padding-bottom:15px; border:2px solid #d9ab43; color:#183b6b; font-size:16px; font-weight:900; }
 .ownershipCell strong,.periodCell strong { display:block; }.ownershipCell small,.periodCell small { display:block; margin-top:3px; color:#8492a6; font-size:.8em; font-weight:500; }.ownershipCell .partialOwnership { color:#a77b20; font-weight:800; }.periodCell { text-align:right; white-space:nowrap; }.periodCell strong { color:#183b6b; font-weight:700; }.periodCell small { text-align:right; font-variant-numeric:tabular-nums lining-nums; }
 @media (max-width:760px) { .reportPageHeader { grid-template-columns:1fr; padding:24px; }.reportPageHeader dl { flex-wrap:wrap; }.summaryTable { width:calc(100% - 48px); margin-left:24px; margin-right:24px; }.summaryAmountColumn { width:28%; } }
-
-@media print {
-  html,body { width:auto!important; height:auto!important; margin:0!important; padding:0!important; }
-  .reportPage { width:auto!important; height:auto!important; min-height:0!important; max-height:none!important; overflow:visible!important; transform:none!important; }
-  .reportPageHeader { grid-template-columns:1fr auto; gap:3mm 8mm; padding:0 0 4mm; border-top:.6mm solid #d9ab43; border-bottom:.2mm solid #aab4c2; }
-  .reportBrand .printLogo { width:31mm; }.reportBrand span { font-size:7.5pt; }.reportPageIdentity p { font-size:8pt; }.reportPageIdentity h1 { font-size:20pt; }.reportPageHeader dl { gap:5mm; }.reportPageHeader dt { font-size:7pt; }.reportPageHeader dd { font-size:8pt; }
-  .overviewPage .wealthOverview { margin-top:7mm; }.overviewPage .primaryWealth { background:#fff!important; border-left:1mm solid #d9ab43; color:#183b6b!important; }.overviewPage .primaryWealth span { color:#a77b20; }.overviewPage .primaryWealth strong { color:#183b6b; font-size:29pt; }
-  .overviewPage .executiveAssetMix { margin-top:7mm; }.overviewPage .executiveMixRow { padding:2mm 0; }
-  .summaryPage .netWorthSummary { padding:0; }.summaryPage .summaryTable { width:100%; margin:7mm 0 0; font-size:9pt; }.summaryPage .summaryTable th,.summaryPage .summaryTable td { padding:2.3mm 3mm; }.summaryPage .summarySection th { font-size:9pt; }.summaryPage .summaryTable tfoot th,.summaryPage .summaryTable tfoot td { font-size:11pt; }
-  .detailedPage .reportPageHeader { margin-bottom:4mm; }
-  .periodGroupRow th small { color:#e5e9ef; font-size:7.5pt; }
-  .printInvestorStatementTable .ownershipCell strong,.printInvestorStatementTable .periodCell strong { font-size:9.5pt; }.printInvestorStatementTable .ownershipCell small,.printInvestorStatementTable .periodCell small { font-size:8pt; }
-  .printPageFooter { margin-top:4mm; }
-}
 
 /* Report hierarchy labels remain left-aligned while financial columns stay right-aligned. */
 .paper,.paper h1,.paper h2,.paper h3,.paper h4,.paper h5,.mix span { text-align:left; }
@@ -273,36 +259,6 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
   .summaryPeriod strong { font-size:16px; }
 }
 
-@media print {
-  .statementExecutive { background:#faf9f6!important; }
-  .statementMasthead { padding:0 0 4mm; border-bottom:.7mm solid #d9ab43; }
-  .statementMasthead .printLogo { width:38mm; }
-  .statementMeta { gap:2mm; }.statementMeta span { font-size:9pt; letter-spacing:.06em; }.statementMeta strong,.statementMeta em { padding-left:2mm; font-size:9pt; }
-  .statementIdentity { padding:6mm 0 4mm; }.statementIdentity p { font-size:9pt; letter-spacing:.06em; }.statementIdentity h1 { margin:1mm 0; font-size:22pt; }.statementIdentity>span { font-size:9pt; }
-  .wealthOverview { grid-template-columns:54mm 1fr; margin:0 0 5mm; border:.25mm solid #e5e9ef; }
-  .primaryWealth { padding:5mm; }.primaryWealth span { font-size:9pt; letter-spacing:.06em; }.primaryWealth strong { margin:2mm 0 1mm; font-size:28pt; }.primaryWealth small { font-size:9pt; }
-  .wealthOverview dl div { padding:3.2mm 4mm; }.wealthOverview dt { font-size:9pt; }.wealthOverview dd { margin-top:1mm; font-size:11pt; }
-  .executiveAssetMix { margin:0; padding:0; }.executiveSectionTitle { padding-bottom:2mm; border-bottom:.5mm solid #d9ab43; }.executiveSectionTitle span { font-size:9pt; letter-spacing:.06em; }.executiveSectionTitle h2 { margin-top:1mm; font-size:18pt; }.executiveSectionTitle small { font-size:9pt; }
-  .executiveMixRow { grid-template-columns:minmax(42mm,1fr) 42mm 29mm 13mm; gap:3mm; padding:2.2mm 0; font-size:9.5pt; }.executiveMixTrack { height:2mm; }
-  .printOwnershipNote { margin:3mm 0 0; color:#285584; font-size:9pt; }
-  .executivePage .printPageFooter { margin-top:3mm; }
-  .statementDetailHead { margin:0 0 3mm; padding:0 0 3mm; border-bottom:.7mm solid #d9ab43; }
-  .statementDetailHead>div>span { font-size:9pt; letter-spacing:.06em; }.statementDetailHead h2 { margin:1mm 0; font-size:18pt; }.statementDetailHead>div>strong { font-size:10.5pt; }
-  .statementDetailHead dl { gap:4mm; }.statementDetailHead dl div { min-width:22mm; }.statementDetailHead dt { font-size:9pt; }.statementDetailHead dd { margin-top:.5mm; font-size:9pt; }
-  .printInvestorStatementTable { min-width:0; font-size:9.5pt; line-height:1.22; }
-  .printInvestorStatementTable .statementNameColumn { width:42%; }.printInvestorStatementTable .statementOwnershipColumn { width:10%; }.printInvestorStatementTable .statementPeriodColumn { width:24%; }
-  .printInvestorStatementTable th,.printInvestorStatementTable td { padding:1.6mm 1.7mm; }
-  .printInvestorStatementTable thead { display:table-header-group; }
-  .printInvestorStatementTable .periodGroupRow th { font-size:9pt; }
-  .statementPrintRow { break-inside:avoid; page-break-inside:avoid; }
-  .statementPrint-section th,.statementPrint-section td { color:#fff!important; background:#183b6b!important; font-size:12pt; font-weight:700; text-transform:none; }
-  .statementPrint-category th,.statementPrint-category td { color:#183b6b!important; background:#e5e9ef!important; font-size:11.5pt; font-weight:600; }
-  .statementPrint-account th { padding-left:4mm; font-weight:400; }.statementPrint-account th small { font-size:9pt; }
-  .statementPrint-subtotal th,.statementPrint-subtotal td { color:#183b6b!important; background:#f4f6f9!important; border-top:.4mm solid #d9ab43; font-weight:600; }
-  .statementPrint-sectionTotal th,.statementPrint-sectionTotal td { color:#fff!important; background:#183b6b!important; font-weight:700; }
-  .statementPrint-netWorth th,.statementPrint-netWorth td { color:#183b6b!important; background:#d9ab43!important; border-top:.5mm solid #183b6b; font-weight:700; }
-  .printPageFooter { color:#53657a; font-size:8.5pt; }.printPageFooter span:last-child { font-variant-numeric:tabular-nums lining-nums; }
-}
 .reviewTable td input + input { margin-top:6px; }
 @media (max-width:640px) { .accountTable .amountColumn { width:130px; } }
 @media print { .accountTable .amountColumn { width:150px; } }
@@ -358,74 +314,124 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .statementNetWorth th,.statementNetWorth td { color:#183b6b; background:#d9ab43; font-size:13px; font-weight:700; border-top:2px solid #183b6b; }
 @media (max-width:760px) { .statementMasthead,.statementDetailHead,.executiveSectionTitle { align-items:flex-start; flex-direction:column; }.statementMasthead,.statementIdentity,.screenStatementDetail { padding-left:24px; padding-right:24px; }.wealthOverview { grid-template-columns:1fr; margin-left:24px; margin-right:24px; }.executiveAssetMix { margin-left:24px; margin-right:24px; }.executiveMixRow { grid-template-columns:minmax(130px,1fr) 80px 54px; }.executiveMixTrack { display:none; }.statementMeta { flex-wrap:wrap; }.statementDetailHead dl { flex-wrap:wrap; }.executiveSectionTitle small { text-align:left; } }
 
-/* Explicit print pages provide deterministic portrait pagination and numbering. */
+
+/* Statement presentation: royal navy, cloud, silver and metallic gold. */
+.overviewContent,.investorStatementScreen { background:#fff; }
+.reportPageHeader { grid-template-columns:1fr; gap:18px; border-top:0; border-bottom:0; }
+.reportBrand { border-top:1px solid #cbd3de; padding-top:16px; }
+.reportBrand::before { content:""; position:absolute; width:28px; border-top:2px solid #b58a32; margin-top:-49px; }
+.reportBrand .printLogo img { width:100%; height:auto; }
+.reportPageIdentity p { color:#8b6827; font-size:12px; }
+.reportPageHeader dl { justify-content:flex-start; gap:40px; }
+.reportPageHeader dd { font-size:13px; }
+.wealthOverview { grid-template-columns:1.15fr .85fr; border:1px solid #b58a32; border-left:3px solid #b58a32; border-radius:12px; overflow:hidden; margin-top:8px; margin-bottom:18px; }
+.primaryWealth { padding:24px; color:#123154; background:#fff; }
+.primaryWealth span { color:#8b6827; }.primaryWealth strong { color:#123154; }
+.wealthOverview dl { grid-template-columns:1fr; align-content:center; padding:14px 0; }
+.wealthOverview dl div { padding:7px 22px; border-bottom:0; border-left:1px solid #cbd3de; }
+.wealthOverview dd { text-align:left; }.wealthOverview dt { color:#64748b; }
+.overviewBalanceCards { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:0 46px 32px; }
+.overviewBalanceCards>div { display:flex; flex-direction:column; gap:9px; padding:20px; border:1px solid #cbd3de; border-radius:10px; }
+.overviewBalanceCards span { color:#64748b; font-size:12px; }.overviewBalanceCards strong { color:#123154; font-size:22px; font-variant-numeric:tabular-nums; }
+.executiveSectionTitle { display:block; border:0; padding-bottom:16px; }
+.executiveSectionTitle h2 { font-size:16px; text-transform:uppercase; }
+.executiveSectionTitle small { display:block; margin-top:7px; text-align:left; }
+.compositionBar { display:flex; height:16px; overflow:hidden; border-radius:3px; background:#f1f4f8; }
+.mixTone0 { background:#b58a32; }.mixTone1 { background:#9baabb; }.mixTone2 { background:#123154; }.mixTone3 { background:#4c6481; }.mixTone4 { background:#73869d; }.mixTone5 { background:#cbd3de; }
+.executiveMixRows { display:grid; grid-template-columns:1fr 1fr; gap:0 28px; padding:10px 0; }
+.executiveMixRow { grid-template-columns:8px minmax(0,1fr) auto; gap:8px; padding:8px 0; border:0; font-size:12px; }
+.executiveMixRow i { width:7px; height:7px; border-radius:2px; }
+.compositionBalance { display:grid; grid-template-columns:1fr 1fr; gap:22px; border:1px solid #cbd3de; border-radius:10px; background:#f1f4f8; padding:18px; }
+.compositionBalance>div { display:flex; flex-direction:column; gap:8px; }.compositionBalance>div+div { border-left:1px solid #cbd3de; padding-left:22px; }
+.compositionBalance span { color:#64748b; font-size:12px; }.compositionBalance strong { font-size:24px; color:#123154; }
+.summaryTable { border-collapse:separate; border-spacing:0; }
+.summaryTable .summarySection th { background:#123154; color:#fff; border-radius:7px 7px 0 0; }
+.summaryTable tbody tr:nth-child(odd):not(.summarySection) { background:#f1f4f8; }
+.summaryTable tfoot th,.summaryTable tfoot td { background:#fff; border-top:1px solid #b58a32; border-bottom:1px solid #b58a32; border-left:0; border-right:0; }
+.summaryTable tfoot th { border-left:1px solid #b58a32; border-radius:8px 0 0 8px; }.summaryTable tfoot td:last-child { border-right:1px solid #b58a32; border-radius:0 8px 8px 0; }
+.screenStatementDetail { border-top:1px solid #cbd3de; }
+.statementNetWorth th,.statementNetWorth td { background:#fff; border-top:2px solid #b58a32; }
+
+/* Screen measurement and printed pages use identical widths and type metrics.
+ * Offscreen content has no focusable controls and is excluded from accessibility. */
+.printReport { display:block; position:fixed; left:-10000px; top:0; visibility:hidden; width:186mm; color:#123154; font-size:10pt; line-height:1.3; font-family:Aptos,"Segoe UI",Arial,sans-serif; }
+.printReport * { box-sizing:border-box; }
+.printReport .reportPage { position:relative; padding:0; margin:0; background:#fff; }
+.printReport .reportPageHeader { display:grid; grid-template-columns:1fr auto; gap:4mm 6mm; padding:0 0 5mm; border:0; background:#fff; }
+.printReport .reportBrand { grid-column:1/-1; position:relative; padding-top:4mm; border-top:.2mm solid #cbd3de; }
+.printReport .reportBrand::before { top:0; left:0; width:20mm; margin:0; border-top:.4mm solid #b58a32; }
+.printReport .reportBrand .printLogo { width:31mm; }
+.printReport .reportBrand span { color:#8b6827; font-size:8pt; }
+.printReport .reportPageIdentity p { margin:0 0 1mm; font-size:9.5pt; }
+.printReport .reportPageIdentity h1 { font-size:20pt; line-height:1.15; }
+.printReport .reportPageHeader dl { gap:5mm; align-items:end; flex-wrap:nowrap; }
+.printReport .reportPageHeader dt { font-size:8pt; color:#5d6e83; }
+.printReport .reportPageHeader dd { margin-top:1mm; font-size:9.5pt; }
+.printReport .overviewPage .reportPageHeader { grid-template-columns:1fr; padding-bottom:7mm; }
+.printReport .overviewPage .reportPageHeader dl { gap:14mm; }
+.printReport .statementExecutive { background:#fff; }
+.printReport .wealthOverview { grid-template-columns:1.15fr .85fr; margin:0 0 5mm; border:.3mm solid #b58a32; border-left:1mm solid #b58a32; border-radius:3mm; }
+.printReport .primaryWealth { padding:6mm; background:#fff; }
+.printReport .primaryWealth span { font-size:9pt; color:#8b6827; }
+.printReport .primaryWealth strong { margin:2mm 0 0; color:#123154; font-size:28pt; white-space:nowrap; }
+.printReport .wealthOverview dl { padding:3mm 0; }
+.printReport .wealthOverview dl div { padding:2mm 5mm; }
+.printReport .wealthOverview dt { font-size:9pt; }.printReport .wealthOverview dd { margin:1mm 0 0; font-size:12pt; }
+.printReport .overviewBalanceCards { margin:0 0 9mm; gap:4mm; }
+.printReport .overviewBalanceCards>div { padding:4mm; border-radius:2.5mm; gap:2mm; }
+.printReport .overviewBalanceCards span { font-size:9.5pt; }.printReport .overviewBalanceCards strong { font-size:16pt; }
+.printReport .executiveAssetMix { margin:0; padding:0; }
+.printReport .executiveSectionTitle { padding-bottom:4mm; }
+.printReport .executiveSectionTitle h2 { font-size:11pt; margin:0; }.printReport .executiveSectionTitle small { font-size:9pt; margin-top:1.5mm; }
+.printReport .compositionBar { height:5mm; }
+.printReport .executiveMixRows { gap:0 6mm; padding:3mm 0; }
+.printReport .executiveMixRow { grid-template-columns:2mm minmax(0,1fr) auto; gap:2mm; padding:2mm 0; font-size:9.5pt; }
+.printReport .executiveMixRow i { width:1.7mm; height:1.7mm; }
+.printReport .compositionBalance { padding:4mm; gap:5mm; border-radius:2.5mm; }
+.printReport .compositionBalance>div { gap:2mm; }.printReport .compositionBalance>div+div { padding-left:5mm; }
+.printReport .compositionBalance span { font-size:9.5pt; }.printReport .compositionBalance strong { font-size:20pt; }
+.printReport .netWorthSummary { padding:0; }
+.printReport .summaryTable { width:100%; margin:3mm 0 0; font-size:10pt; line-height:1.2; }
+.printReport .summaryTable th,.printReport .summaryTable td { padding:2mm 3mm; }
+.printReport .summaryTable thead th { font-size:9pt; }
+.printReport .summaryTable .summarySection th { font-size:10pt; padding:2.5mm 3mm; }
+.printReport .summaryTable .summaryTotal th,.printReport .summaryTable .summaryTotal td { border-top:.4mm solid #b58a32; }
+.printReport .summaryTable tfoot th,.printReport .summaryTable tfoot td { font-size:12pt; padding:4mm 3mm; }
+.printReport .investorStatementTable { min-width:0; margin:0; font-size:10pt; line-height:1.25; border-collapse:collapse; }
+.printReport .statementNameColumn { width:42%; }.printReport .statementOwnershipColumn { width:10%; }.printReport .statementPeriodColumn { width:24%; }
+.printReport .investorStatementTable th,.printReport .investorStatementTable td { padding:2mm 2mm; }
+.printReport .periodGroupRow th { background:#123154; color:#fff; font-size:9.5pt; padding:3mm 2mm; }
+.printReport .periodGroupRow th:first-child { border-radius:2mm 0 0 0; }.printReport .periodGroupRow th:last-child { border-radius:0 2mm 0 0; }
+.printReport .periodGroupRow th:nth-last-child(-n+2) { background:#123154; }
+.printReport .statementPrint-section th,.printReport .statementPrint-section td { background:#f1f4f8; color:#123154; font-weight:800; border-bottom:0; }
+.printReport .statementPrint-category th,.printReport .statementPrint-category td { background:#f1f4f8; color:#123154; font-weight:700; }
+.printReport .statementPrint-account:nth-child(even) { background:#f8fafc; }
+.printReport .statementPrint-account th { padding-left:4mm; font-weight:500; overflow-wrap:anywhere; }
+.printReport .statementPrint-account th small { display:block; margin-top:1mm; color:#5d6e83; font-size:9.5pt; font-weight:400; }
+.printReport .ownershipCell strong,.printReport .periodCell strong { font-size:10pt; }
+.printReport .ownershipCell small,.printReport .periodCell small { color:#5d6e83; font-size:9.5pt; margin-top:1mm; }
+.printReport .partialOwnership { color:#8b6827; }
+.printReport .statementPrint-subtotal th,.printReport .statementPrint-subtotal td { background:#fff; border-top:.3mm solid #b58a32; font-weight:700; }
+.printReport .statementPrint-sectionTotal th,.printReport .statementPrint-sectionTotal td { background:#f1f4f8; font-weight:800; }
+.printReport .statementPrint-netWorth th,.printReport .statementPrint-netWorth td { background:#fff; border-top:.5mm solid #b58a32; border-bottom:.3mm solid #b58a32; font-size:12pt; font-weight:800; }
+.printReport .printPageFooter { display:grid; grid-template-columns:1fr auto; align-items:end; gap:4mm; margin-top:5mm; padding-top:2mm; border-top:.2mm solid #cbd3de; color:#5d6e83; font-size:8.5pt; line-height:1.4; }
+.printPageFooter strong { display:block; font-weight:500; }.printPageFooter small { display:block; font-size:8pt; }
+.printPageFooter>span { text-align:right; white-space:nowrap; }
+.pageWatermark { position:absolute; top:95mm; left:0; width:100%; text-align:center; color:#123154; opacity:.035; font-size:70pt; font-weight:900; pointer-events:none; }
+.statementMeasurement { top:0; }
 @media print {
-  .screenReport { display:none!important; }
-  .printReport { display:block!important; width:auto; margin:0; padding:0; color:#172235; background:#fff; }
-  .reportArea,.printReport,.reportPage,.detailedStatement,.categoryGroup,.holderGroup { height:auto!important; min-height:0!important; max-height:none!important; }
-  .printPage { position:relative; box-sizing:border-box; padding:0; background:#fff; print-color-adjust:exact; -webkit-print-color-adjust:exact; }
-  .reportPage { width:auto!important; height:auto!important; min-height:0!important; max-height:none!important; margin:0!important; overflow:visible!important; transform:none!important; break-after:page; page-break-after:always; }
-  .reportPage:last-child { break-after:auto; page-break-after:auto; }
-  .printLogo { display:block; width:42mm; height:auto; }
-  .printLogo img { display:block; width:100%; height:auto; }
-  .printHero { margin-top:20mm; }
-  .printHero>p { margin:0 0 3mm; color:#9b6b18; font-size:8pt; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }
-  .printHero h1 { margin:0; color:#0e2037; font-size:25pt; line-height:1.08; text-align:left; }
-  .printHero h2 { margin:4mm 0 10mm; color:#667389; font-size:17pt; text-align:left; }
-  .printHero>div { display:grid; grid-template-columns:auto auto; justify-content:start; gap:1.5mm 5mm; font-size:9pt; }
-  .printHero span { color:#768196; }.printHero strong { color:#172235; }
-  .printHero::after { content:""; display:block; width:100%; margin-top:7mm; border-bottom:.7mm solid #dcae4e; }
-  .printSummaryCards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3mm; margin-top:14mm; }
-  .printSummaryCards .summary { min-width:0; min-height:58mm; padding:5mm; border-radius:4mm; }
-  .printSummaryCards .summary h3 { font-size:8pt; }
-  .printSummaryCards .summaryPeriod { display:block; }
-  .printSummaryCards .summaryPeriod span { font-size:6.5pt; }
-  .printSummaryCards .summaryPeriod strong { margin-top:1mm; font-size:12pt; }
-  .printSummaryCards .summaryChange { display:block; }
-  .printSummaryCards .summaryChange strong { margin-top:1mm; font-size:10pt; }
-  .reportingBasis { display:flex; flex-direction:column; gap:2mm; margin-top:9mm; padding:5mm; border-radius:4mm; background:#f1f3f6!important; color:#667389; font-size:8pt; }
-  .reportingBasis strong { color:#172235; font-size:9pt; }
-  .reportingBasis em { color:#6f5421; font-size:8pt; font-style:normal; }
-  .schedulePageHead { display:block; padding-bottom:5mm; border-bottom:.7mm solid #dcae4e; }
-  .schedulePageHead>div { margin-top:6mm; text-align:left; }
-  .schedulePageHead h1 { margin:0; color:#0e2037; font-size:19pt; text-align:left; }
-  .schedulePageHead p { margin:1mm 0 0; color:#687488; font-size:8.5pt; text-align:left; }
-  .schedulePageHead small { display:block; margin-top:1mm; color:#7c8799; font-size:7pt; text-align:left; }
-  .printSchedule { width:100%; margin-top:3mm; table-layout:fixed; border-collapse:collapse; font-size:8pt; }
-  .printSchedule .printAmountColumn { width:35mm; }
-  .printSchedule th,.printSchedule td { box-sizing:border-box; padding:1.3mm 3mm; border-bottom:.25mm solid #dfe4ea; }
-  .printSchedule th { color:#172235; font-weight:600; text-align:left; text-transform:none; letter-spacing:0; font-size:inherit; }
-  .printSchedule td,.printSchedule thead th:not(:first-child) { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums lining-nums; font-feature-settings:"tnum" 1,"lnum" 1; }
-  .printSchedule thead { display:table-header-group; }
-  .printSchedule thead th { padding-top:2mm; padding-bottom:2mm; color:#fff!important; background:#0b1d34!important; font-size:7.5pt; font-weight:800; text-transform:uppercase; }
-  .printRow-investor,.printRow-section,.printRow-category,.printRow-holder,.printRow-account,.printRow-total { break-inside:avoid; page-break-inside:avoid; }
-  .printRow-investor th { padding-top:2mm; color:#0e2037; font-size:10pt; font-weight:900; }
-  .printRow-section th,.printRow-section td { color:#fff; background:#1d447b!important; font-size:9pt; font-weight:900; text-transform:uppercase; }
-  .printRow-category th,.printRow-category td { color:#0e2037; background:#e9eef4!important; font-weight:900; }
-  .printRow-holder th,.printRow-holder td { background:#f7f8fa!important; font-weight:800; }
-  .printRow-account th { padding-left:8mm; }
-  .printRow-total th,.printRow-total td { border-top:.5mm solid #8492a6; background:#eef1f5!important; font-weight:900; }
-  .assetMixPage .schedulePageHead { margin-bottom:14mm; }
-  .printAssetMix { display:flex; flex-direction:column; gap:10mm; }
-  .printMix { display:grid; grid-template-columns:minmax(0,1fr) 55mm 35mm 15mm; gap:4mm; align-items:center; }
-  .printMix strong { color:#172235; font-size:9pt; text-align:left; }
-  .printMix span,.printMix em { color:#425169; text-align:right; font-size:9pt; font-style:normal; font-variant-numeric:tabular-nums lining-nums; }
-  .printMixTrack { height:4mm; overflow:hidden; border-radius:3mm; background:#e5e8ec!important; }
-  .printMixTrack i { display:block; height:100%; min-width:1mm; background:#d4aa51!important; }
-  .printTotalAssets { position:static; display:flex; align-items:center; justify-content:space-between; margin-top:12mm; padding:7mm; border-radius:4mm; color:#fff; background:#0b1d34!important; text-transform:uppercase; break-inside:avoid; page-break-inside:avoid; }
-  .printTotalAssets span { font-size:19pt; font-weight:900; white-space:nowrap; font-variant-numeric:tabular-nums lining-nums; }
-  .printPageFooter { position:static; display:grid; grid-template-columns:1fr auto; gap:4mm; margin-top:4mm; padding-top:2mm; border-top:.25mm solid #aab4c2; color:#53657a; font-size:8.5pt; break-inside:avoid; page-break-inside:avoid; }
-  .printPageFooter span:last-child { text-align:right; }
-  .pageWatermark { position:absolute; z-index:0; left:50%; top:50%; transform:translate(-50%,-50%); color:#17355f!important; opacity:.055; font-size:54pt; font-weight:900; white-space:nowrap; }
-  .printPage>*:not(.pageWatermark) { position:relative; z-index:1; }
-  .printInvestorStatementTable { min-width:0; font-size:9.5pt; line-height:1.22; }
-  .printInvestorStatementTable .statementNameColumn { width:42%; }
-  .printInvestorStatementTable .statementOwnershipColumn { width:10%; }
-  .printInvestorStatementTable .statementPeriodColumn { width:24%; }
-  .printInvestorStatementTable th,.printInvestorStatementTable td { padding:1.6mm 1.7mm; }
-  .printInvestorStatementTable .periodGroupRow th { font-size:9pt; }
-  .printInvestorStatementTable .statementPrint-section th { font-size:12pt; font-weight:700; text-transform:none; }
-  .printInvestorStatementTable .statementPrint-category th { font-size:11.5pt; font-weight:600; }
-  .printInvestorStatementTable .statementPrint-account th,.printInvestorStatementTable .statementPrint-account td { font-size:9.5pt; }
-  .printInvestorStatementTable .statementPrint-account th small { font-size:9pt; }
+  .printReport { position:static; left:auto; top:auto; visibility:visible; width:100%; }
+  .statementMeasurement { display:none!important; }
+  .printReport .reportPage { break-after:page; page-break-after:always; }
+  .printReport .reportPage:last-child { break-after:auto; page-break-after:auto; }
+  .printReport .investorStatementTable thead { display:table-header-group; }
+  .printReport .statementPrintRow { break-inside:avoid; page-break-inside:avoid; }
+  .printReport .statementPrint-section,.printReport .statementPrint-category { break-after:avoid; page-break-after:avoid; }
+  .printReport .printPageFooter { break-inside:avoid; page-break-inside:avoid; }
 }
+.printReport .reportPage { display:flex; flex-direction:column; min-height:273mm; }
+.printReport .reportPage>*:not(.pageWatermark) { flex-shrink:0; }
+.printReport .reportPage .printPageFooter { margin-top:auto; padding-top:2mm; }
+.printReport .reportPageIdentity h1 { font-weight:750; letter-spacing:-.02em; }
+@media print { html,body { background:#fff!important; }.printReport .reportPage .printPageFooter { padding-bottom:0; } }
+.summaryTable th { font-size:inherit; letter-spacing:0; }
