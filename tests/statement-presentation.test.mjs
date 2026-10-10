@@ -51,12 +51,16 @@ test('wrapped row heights change pagination without losing leaf accounts',()=>{
  assert.deepEqual(wrapped.flat(),flat);
  assert.throws(()=>paginateMeasuredStatement(flat,flat.map(()=>600),500),/exceeds/);
 });
-test('statement formatting preserves visible cents and uses the selected currency',async()=>{
+test('statement formatting rounds to whole amounts and uses the selected currency',async()=>{
  const {formatStatementAmount}=await import('../app/lib/statementPresentation.ts');
- assert.equal(formatStatementAmount(3.4,'CAD'),'$3.40');
- assert.equal(formatStatementAmount(3.06,'EUR'),'€3.06');
- assert.equal(formatStatementAmount(-3.06,'CAD'),'($3.06)');
+ assert.equal(formatStatementAmount(3.4,'CAD'),'$3');
+ assert.equal(formatStatementAmount(3.06,'EUR'),'€3');
+ assert.equal(formatStatementAmount(-3.06,'CAD'),'($3)');
  assert.equal(formatStatementAmount(1000,'CAD'),'$1,000');
+ assert.equal(formatStatementAmount(3.5,'CAD'),'$4');
+ assert.equal(formatStatementAmount(-3.5,'CAD'),'($4)');
+ assert.equal(formatStatementAmount(3.4999,'CAD'),'$3');
+ assert.equal(formatStatementAmount(1234.6,''),'1,235');
 });
 test('rounds half-cent shares reliably and groups accounts by holder without changing source order',async()=>{
  const {roundCurrency}=await import('../app/lib/statementPresentation.ts');

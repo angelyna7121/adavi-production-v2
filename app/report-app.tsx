@@ -381,7 +381,7 @@ function RowEditorDialog({editor,investors,statements,categories,error,onAddCate
 }
 
 function PrintLogo(){return <div className="printLogo"><Image src="/adavi-logo.svg" alt="adavi" width={194} height={48} priority /></div>;}
-function ownership(value:number){return `${value.toLocaleString("en-CA",{maximumFractionDigits:2})}%`;}
+function ownership(value:number){return `${value.toLocaleString("en-CA",{maximumFractionDigits:0})}%`;}
 
 function ReportPageHeader({label,title,reportName,currency,currentLabel,previousLabel}:{label:string;title:string;reportName:string;currency:string;currentLabel:string;previousLabel:string}){
   return <header className="reportPageHeader"><div className="reportBrand"><PrintLogo/><span aria-hidden="true">{label === "Net Worth Overview" ? "Private wealth statement" : ""}</span></div><div className="reportPageIdentity"><p>{reportName.toLocaleUpperCase("en-CA")}</p><h1>{title}</h1></div><dl><div><dt>Current</dt><dd>{currentLabel}</dd></div><div><dt>Previous</dt><dd>{previousLabel}</dd></div><div><dt>Currency</dt><dd>{currency}</dd></div></dl></header>;
@@ -397,8 +397,8 @@ function StatementExecutive({reportName,currency,currentLabel,previousLabel,stat
     <div className="overviewBalanceCards"><div><span>Total assets</span><strong>{money(statement.currentShareAssets)}</strong></div><div><span>Total liabilities</span><strong>{money(statement.currentShareLiabilities)}</strong></div></div>
     <section className="executiveAssetMix" aria-label="Asset composition"><div className="executiveSectionTitle"><h2>How the portfolio is positioned</h2><small>Share of current assets</small></div>
       <div className="compositionBar" aria-hidden="true">{assetMix.map((entry,index)=><i key={entry.category} className={`mixTone${index%6}`} style={{width:`${Math.max(0,entry.percentage)}%`}}/>)}</div>
-      <div className="executiveMixRows">{assetMix.map((entry,index)=><div className="executiveMixRow" key={entry.category}><i className={`mixTone${index%6}`} aria-hidden="true"/><strong>{entry.category}</strong><em>{entry.percentage.toFixed(1)}%</em></div>)}</div>
-      <div className="compositionBalance"><div><span>Net worth / assets</span><strong>{(statement.currentShareAssets ? statement.currentShareNetWorth/statement.currentShareAssets*100 : 0).toFixed(1)}%</strong></div><div><span>Liabilities / assets</span><strong>{debtRatio.toFixed(1)}%</strong></div></div>
+      <div className="executiveMixRows">{assetMix.map((entry,index)=><div className="executiveMixRow" key={entry.category}><i className={`mixTone${index%6}`} aria-hidden="true"/><strong>{entry.category}</strong><em>{entry.percentage.toFixed(0)}%</em></div>)}</div>
+      <div className="compositionBalance"><div><span>Net worth / assets</span><strong>{(statement.currentShareAssets ? statement.currentShareNetWorth/statement.currentShareAssets*100 : 0).toFixed(0)}%</strong></div><div><span>Liabilities / assets</span><strong>{debtRatio.toFixed(0)}%</strong></div></div>
     </section>
   </section>;
 }

@@ -5,12 +5,11 @@ export function roundCurrency(value: number) {
 }
 
 export function formatStatementAmount(value: number, currency: string) {
-  const amount = roundCurrency(value);
-  const fractionDigits = Number.isInteger(amount) ? 0 : 2;
+  const amount = value;
   try {
-    return new Intl.NumberFormat("en-CA", {style:"currency",currency,currencyDisplay:"narrowSymbol",currencySign:"accounting",minimumFractionDigits:fractionDigits,maximumFractionDigits:2}).format(amount);
+    return new Intl.NumberFormat("en-CA", {style:"currency",currency,currencyDisplay:"narrowSymbol",currencySign:"accounting",minimumFractionDigits:0,maximumFractionDigits:0}).format(amount);
   } catch {
-    return amount.toLocaleString("en-CA", {minimumFractionDigits:fractionDigits,maximumFractionDigits:2});
+    return amount.toLocaleString("en-CA", {minimumFractionDigits:0,maximumFractionDigits:0});
   }
 }
 
