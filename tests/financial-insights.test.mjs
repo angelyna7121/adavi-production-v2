@@ -138,11 +138,11 @@ test('demo HTTP cache isolates public session and selected synthetic scope',asyn
  assert.equal((await (await handleInsightsRequest(request(payload),service)).json()).cached,false);
 });
 test('UI has explicit consent, safe demo disclosure, abort, cache and no automatic AI request',async()=>{
- const ui=await readFile(new URL('../app/financial-insights-panel.tsx',import.meta.url),'utf8');
+ const ui=(await readFile(new URL('../app/financial-insights-demo.tsx',import.meta.url),'utf8')).replace(/\s+/g,' ');
  assert.match(ui,/✨ Analyze My Financial Position/);assert.match(ui,/disabled=\{!agreed\}/);assert.match(ui,/only the synthetic scope/i);
- assert.match(ui,/if \(!agreed \|\| request.current\) return/);assert.match(ui,/if \(result\) \{ setExpanded\(true\); return/);
+ assert.match(ui,/if \(!agreed \|\| request.current\) return/);assert.match(ui,/if \(result\) \{\s*setExpanded\(true\);\s*return/);
  assert.equal((ui.match(/fetch\(/g)||[]).length,1);assert.match(ui,/AbortController/);assert.match(ui,/is not a real AI-generated analysis/);
- const app=await readFile(new URL('../app/report-app.tsx',import.meta.url),'utf8');assert.match(app,/analysisKey=\{JSON.stringify\(\{ids:selectedReport.investorIds,date:statementDate,currency,statement:selectedReport.statement\}\)\}/);
+ const app=await readFile(new URL('../app/report-app.tsx',import.meta.url),'utf8');assert.match(app,/analysisKey=\{JSON.stringify\(\{ids:selectedReport.investorIds,date:statementDate,currency,rows\}\)\}/);
  const css=await readFile(new URL('../app/globals.css',import.meta.url),'utf8');assert.match(css,/@media print \{ \.financialInsightsPanel,\.insightsConsentDialog \{ display:none!important;/);
 });
 test('provider inputs reject extra identity fields, unsafe labels and invalid periods',()=>{

@@ -1,3 +1,4 @@
+import { statementPresentation } from "./statementPresentation";
 import type { Kind, ParsedRow } from "./documentParser";
 import { calculateStatementTotals, reconcileCategory, type FinancialRow } from "./reconciliation";
 
@@ -199,4 +200,11 @@ export function paginateReportSchedule(groups:ReportGroup[],capacity=22):PrintSc
   startPage();return filterPrintableSchedulePages(pages);
 }
 function csvCell(value:string|number){return `"${String(value).replaceAll('"','""')}"`;}
-export function createReportCsv(rows:ParsedRow[]){const lines=[CSV_HEADERS.map(csvCell).join(",")];for(const row of confirmedDetailRows(rows).filter((r)=>r.investor.trim()))lines.push([row.investor,row.source,effectiveOwnershipPercentage(row),row.rawCurrent??row.current,row.current,row.rawPrevious!==undefined?(row.rawPrevious??""):(row.previous??""),row.previous??"",row.kind,row.category,[row.holder,row.accountName].filter(Boolean).join(" — "),row.description].map(csvCell).join(","));return `\uFEFF${lines.join("\r\n")}\r\n`;}
+export function createReportCsv(rows:ParsedRow[]){
+  const leaves=confirmedDetailRows(rows).filter(row=>row.investor.trim());
+  const presented=statementPresentation(buildInvestorStatement(leaves));
+  const shares=new Map(presented.sections.flatMap(section=>section.categories.flatMap(category=>category.accounts.map(account=>[account.id,account] as const))));
+  const lines=[CSV_HEADERS.map(csvCell).join(",")];
+  for(const row of leaves){const account=shares.get(row.id)!;lines.push([row.investor,row.source,effectiveOwnershipPercentage(row),row.rawCurrent??row.current,account.currentShare,row.rawPrevious!==undefined?(row.rawPrevious??""):(row.previous??""),row.previous===null?"":account.previousShare,row.kind,row.category,[row.holder,row.accountName].filter(Boolean).join(" — "),row.description].map(csvCell).join(","));}
+  return `\uFEFF${lines.join("\r\n")}\r\n`;
+}

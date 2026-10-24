@@ -1,9 +1,13 @@
 import "server-only";
-
-/**
- * Paid report mode must only be returned from authenticated, persisted subscription data.
- * This repository has no authentication or verified Stripe webhook store, so fail closed.
- */
+import { authenticatedUser } from "./backend/auth";
+import { resolveEntitlement } from "./backend/resolveEntitlement";
 export async function getVerifiedPaidEntitlement(): Promise<boolean> {
-  return false;
+  try {
+    const user = await authenticatedUser();
+    if (!user?.emailVerified) return false;
+    const decision = await resolveEntitlement(user.userId);
+    return decision.canExportCsv && decision.canPrintUnbranded;
+  } catch {
+    return false;
+  }
 }

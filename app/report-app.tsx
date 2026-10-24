@@ -2,8 +2,11 @@
 
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import FinancialInsightsPanel from "./financial-insights-panel";
 import type { DemoScope } from "./lib/financialInsights/contracts";
+import type { AnalysisCapability } from "./lib/financialInsights/settings";
+import type { InsightsSelection } from "./financial-insights-panel";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
 import { formatPeriodAmount } from "./lib/ocrFinancialParser";
 import { applyOwnershipToRow, assignInvestor, assignStatement, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, deriveSelectedInvestorReport, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
@@ -29,7 +32,7 @@ const liabilityCategories: Category[] = ["Corporate Tax Payable", "Loans Payable
 
 function money(value: number | null | "") { return formatPeriodAmount(value === "" || value === null ? 0 : value); }
 
-export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedPaidEntitlement: boolean }) {
+export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapability }: { hasVerifiedPaidEntitlement: boolean; analysisCapability: AnalysisCapability }) {
   const [step, setStep] = useState<Step>("upload");
   const [rows, setRows] = useState<Row[]>([]);
   const [statementDate, setStatementDate] = useState(new Date().toISOString().slice(0, 10));
@@ -268,7 +271,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
     <main>
       <header className="topbar">
         <a className="brand" href="#"><span className="brandMark">ϟ</span><span>adavi.ai</span></a>
-        <nav><a href="#">Dashboard</a><a className="active" href="#">Net Worth</a><a href="#">Income Strategy</a><a href="#">Reports</a></nav>
+        <nav><Link href="/account">Account</Link><a href="#">Dashboard</a><a className="active" href="#">Net Worth</a><a href="#">Income Strategy</a><a href="#">Reports</a></nav>
         <div className="topbarActions"><button type="button" className="searchButton" aria-expanded={showSearch} aria-controls="page-search-panel" onClick={() => showSearch ? closeSearch() : setShowSearch(true)}><span className="searchButtonIcon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="10.75" cy="10.75" r="6.75"/><path d="m16 16 4 4"/></svg></span><span>Search</span></button><button className="upgrade">♕&nbsp;&nbsp; Upgrade</button></div>
       </header>
 
@@ -312,7 +315,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
               <h2>Report setup</h2>
               <label>Statement date<input type="date" value={statementDate} onChange={(e) => setStatementDate(e.target.value)} /></label>
               <label>Currency<input value={currency} maxLength={3} aria-label="Report currency" onChange={(e) => setCurrency(e.target.value.toUpperCase())} /></label>
-              <div className="privacy"><span>◆</span><div><strong>Private by design</strong><p>Statements are parsed locally in your browser. Nothing is uploaded or stored.</p></div></div>
+              <div className="privacy"><span>◆</span><div><strong>Private by design</strong><p>Statements stay in your browser. Only an anonymous financial summary is saved when you choose to save it to your account.</p></div></div>
             </aside>
           </section>
         )}
@@ -358,7 +361,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement }: { hasVerifiedP
             <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your selected statement is complete</h2><p>{selectedReport.hasSelection?selectedReport.title:"No investors selected"} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!selectedReport.hasSelection&&<span className="printSelectionError" role="alert">Select at least one investor to create a statement.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Print selected investors</button><button className="primary" disabled={!selectedReport.hasSelection} onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
             {selectedReport.hasSelection&&<article className={`paper screenReport investorStatementScreen ${hasVerifiedPaidEntitlement ? "paidReport" : "freeReport"}`}>
               {!hasVerifiedPaidEntitlement && <div className="printWatermark" aria-hidden="true">adavi</div>}
-              <StatementExecutive reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} analysisScope={selectedReport.investorIds.length === 1 ? "individual" : "consolidated"} analysisKey={JSON.stringify({ids:selectedReport.investorIds,date:statementDate,currency,statement:selectedReport.statement})} />
+              <StatementExecutive reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} analysisScope={selectedReport.investorIds.length === 1 ? "individual" : "consolidated"} analysisKey={JSON.stringify({ids:selectedReport.investorIds,date:statementDate,currency,rows})} analysisCapability={analysisCapability} analysisSelection={{rows,investors:investorList,selectedInvestorIds:selectedReport.investorIds,date:statementDate,currency,preferredInvestorId:activeInvestorId}} />
               <NetWorthSummary reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement}/>
               <section className="screenStatementDetail" aria-labelledby="assets-liabilities-title"><StatementHeading id="assets-liabilities-title" reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/><InvestorStatementTable statement={selectedReport.statement} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/></section>
               {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Not tax, legal, accounting, or investment advice</span></footer>}
@@ -389,7 +392,7 @@ function ReportPageHeader({label,title,reportName,currency,currentLabel,previous
   return <header className="reportPageHeader"><div className="reportBrand"><PrintLogo/><span aria-hidden="true">{label === "Net Worth Overview" ? "Private wealth statement" : ""}</span></div><div className="reportPageIdentity"><p>{reportName.toLocaleUpperCase("en-CA")}</p><h1>{title}</h1></div><dl><div><dt>Current</dt><dd>{currentLabel}</dd></div><div><dt>Previous</dt><dd>{previousLabel}</dd></div><div><dt>Currency</dt><dd>{currency}</dd></div></dl></header>;
 }
 
-function StatementExecutive({reportName,currency,currentLabel,previousLabel,statement,assetMix,analysisScope,analysisKey}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;analysisScope?:DemoScope;analysisKey?:string}){
+function StatementExecutive({reportName,currency,currentLabel,previousLabel,statement,assetMix,analysisScope,analysisKey,analysisCapability,analysisSelection}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;analysisScope?:DemoScope;analysisKey?:string;analysisCapability?:AnalysisCapability;analysisSelection?:InsightsSelection}){
   const money=useStatementMoney();
   const change=statement.currentShareNetWorth-statement.previousShareNetWorth;
   const debtRatio=statement.currentShareAssets ? statement.currentShareLiabilities/statement.currentShareAssets*100 : 0;
@@ -397,7 +400,7 @@ function StatementExecutive({reportName,currency,currentLabel,previousLabel,stat
     <ReportPageHeader label="Net Worth Overview" title="Net Worth Overview" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/>
     <div className="wealthOverview"><div className="primaryWealth"><span>Current net worth</span><strong>{money(statement.currentShareNetWorth)}</strong></div><dl><div><dt>Previous net worth</dt><dd>{money(statement.previousShareNetWorth)}</dd></div><div><dt>Change in net worth</dt><dd>{money(change)}</dd></div></dl></div>
     <div className="overviewBalanceCards"><div><span>Total assets</span><strong>{money(statement.currentShareAssets)}</strong></div><div><span>Total liabilities</span><strong>{money(statement.currentShareLiabilities)}</strong></div></div>
-    {analysisScope&&<FinancialInsightsPanel key={analysisKey} initialScope={analysisScope}/>}
+    {analysisScope&&analysisCapability&&analysisSelection&&<FinancialInsightsPanel key={analysisKey} capability={analysisCapability} selection={analysisSelection}/>}
     <section className="executiveAssetMix" aria-label="Asset composition"><div className="executiveSectionTitle"><h2>How the portfolio is positioned</h2><small>Share of current assets</small></div>
       <div className="compositionBar" aria-hidden="true">{assetMix.map((entry,index)=><i key={entry.category} className={`mixTone${index%6}`} style={{width:`${Math.max(0,entry.percentage)}%`}}/>)}</div>
       <div className="executiveMixRows">{assetMix.map((entry,index)=><div className="executiveMixRow" key={entry.category}><i className={`mixTone${index%6}`} aria-hidden="true"/><strong>{entry.category}</strong><em>{entry.percentage.toFixed(0)}%</em></div>)}</div>
