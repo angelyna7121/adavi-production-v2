@@ -2,6 +2,13 @@ export type AnalysisCapability = {
   mode: "disabled" | "mock" | "live";
   canAnalyzeFinancialPosition: boolean;
   reason: string;
+  eligibilityReason?:
+    | "ready"
+    | "service-disabled"
+    | "not-authorized"
+    | "usage-limit-reached"
+    | "configuration-error";
+  resetAt?: string;
   providerLabel?: string;
   retentionNotice?: string;
 };

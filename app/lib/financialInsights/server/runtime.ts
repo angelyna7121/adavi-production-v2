@@ -117,18 +117,22 @@ export function analysisCapability(): AnalysisCapability {
       mode,
       canAnalyzeFinancialPosition: false,
       reason: "Demonstration",
+      eligibilityReason: "service-disabled",
     };
   const deps = mode === "live" ? liveDependencies() : null;
   if (!deps)
     return {
       mode: mode === "live" ? "live" : "disabled",
       canAnalyzeFinancialPosition: false,
-      reason: "Financial analysis is not yet available.",
+      reason: "Financial analysis is not available in this environment.",
+      eligibilityReason:
+        mode === "disabled" ? "service-disabled" : "configuration-error",
     };
   return {
     mode: "live",
     canAnalyzeFinancialPosition: true,
     reason: "Ready to analyze",
+    eligibilityReason: "ready",
     providerLabel: deps.providerLabel,
     retentionNotice: deps.retentionNotice,
   };
@@ -143,14 +147,22 @@ export async function userAnalysisCapability(): Promise<AnalysisCapability> {
       return {
         ...capability,
         canAnalyzeFinancialPosition: false,
-        reason:
-          "Sign in with a verified account to analyze a financial summary.",
+        reason: "Sign in or upgrade to use financial analysis.",
+        eligibilityReason: "not-authorized",
       };
     const entitlement = await resolveEntitlement(user.userId);
     if (!entitlement.canAnalyzeFinancialPosition)
       return {
+        resetAt:
+          entitlement.source !== "free" && entitlement.remainingAiAnalyses === 0
+            ? new Date(new Date().setUTCHours(24, 0, 0, 0)).toISOString()
+            : undefined,
         ...capability,
         canAnalyzeFinancialPosition: false,
+        eligibilityReason:
+          entitlement.source !== "free" && entitlement.remainingAiAnalyses === 0
+            ? "usage-limit-reached"
+            : "not-authorized",
         reason:
           entitlement.source !== "free" && entitlement.remainingAiAnalyses === 0
             ? "Usage limit reached"
@@ -161,7 +173,9 @@ export async function userAnalysisCapability(): Promise<AnalysisCapability> {
     return {
       ...capability,
       canAnalyzeFinancialPosition: false,
-      reason: "Financial analysis is not yet available.",
+      reason:
+        "Financial analysis is temporarily unavailable. Please try again later.",
+      eligibilityReason: "configuration-error",
     };
   }
 }

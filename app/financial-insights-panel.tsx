@@ -11,13 +11,18 @@ import {
 import type { AnalysisCapability } from "./lib/financialInsights/settings";
 import type { ParsedRow } from "./lib/documentParser";
 import type { ReportInvestor } from "./lib/reportData";
+import {
+  analysisEligibility,
+  eligibility as eligibilityState,
+  analysisRequestFailure,
+  serviceEligibility,
+  inspectAnalysisData,
+  formatAnalysisDate,
+} from "./lib/financialInsights/eligibility";
 import { trustedSummary } from "./lib/financialInsights/selection";
 import { formatStatementAmount } from "./lib/statementPresentation";
 import type { LiveAnalysisResult } from "./lib/financialInsights/server/live";
-import {
-  CONSENT_VERSION,
-  EDUCATIONAL_NOTICE,
-} from "./lib/financialInsights/notices";
+import { CONSENT_VERSION } from "./lib/financialInsights/notices";
 
 export type InsightsSelection = {
   rows: ParsedRow[];
@@ -28,31 +33,18 @@ export type InsightsSelection = {
   reportVersionId?: string;
   preferredInvestorId?: string;
 };
-const safeError: Record<string, string> = {
-  RATE_LIMITED: "Usage limit reached",
-  USAGE_LIMIT_REACHED: "Usage limit reached",
-  NOT_INCLUDED_IN_PLAN: "Not included in plan",
-  DATA_REQUIRES_REVIEW: "Data requires review",
-  RECONCILIATION_FAILED: "Data requires review",
-  AUTHENTICATION_REQUIRED:
-    "Sign in with a verified account to analyze this report.",
-  REPORT_CHANGED: "The report changed. Review it before trying again.",
-};
 export default function FinancialInsightsPanel({
   capability,
   selection,
+  onSelectionChange,
+  onReviewRows,
 }: {
   capability: AnalysisCapability;
   selection: InsightsSelection;
+  onSelectionChange: (ids: string[]) => void;
+  onReviewRows: (ids: string[]) => void;
 }) {
-  const [ids, setIds] = useState<string[]>(() =>
-    selection.selectedInvestorIds.length === 1
-      ? selection.selectedInvestorIds
-      : selection.preferredInvestorId &&
-          selection.selectedInvestorIds.includes(selection.preferredInvestorId)
-        ? [selection.preferredInvestorId]
-        : [],
-  );
+  const ids = selection.selectedInvestorIds;
   const [consentOpen, setConsentOpen] = useState(false),
     [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false),
@@ -61,13 +53,22 @@ export default function FinancialInsightsPanel({
     reportVersionId: string;
     investorMap: Record<string, string>;
   } | null>(null);
+  const [requestFailure, setRequestFailure] = useState<ReturnType<
+    typeof analysisRequestFailure
+  > | null>(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<LiveAnalysisResult | null>(null),
     [expanded, setExpanded] = useState(true);
   const dialog = useRef<HTMLDialogElement>(null),
     trigger = useRef<HTMLButtonElement>(null),
     request = useRef<AbortController | null>(null);
+  const data = useMemo(
+    () => inspectAnalysisData({ ...selection }),
+    [selection],
+  );
+  const service = serviceEligibility(capability);
   const preview = useMemo(() => {
+    if (!data.eligibility.eligible) return { summary: null, error: "" };
     try {
       return {
         summary: trustedSummary(
@@ -89,26 +90,29 @@ export default function FinancialInsightsPanel({
         error: "",
       };
     } catch {
-      return { summary: null, error: "Data requires review" };
+      return {
+        summary: null,
+        error:
+          "Financial analysis is temporarily unavailable. Please try again later.",
+      };
     }
-  }, [selection, ids]);
+  }, [selection, ids, data.eligibility.eligible]);
+  const status =
+    requestFailure && service.eligible
+      ? requestFailure.eligibility
+      : analysisEligibility(
+          preview.error
+            ? eligibilityState("configuration-error", preview.error)
+            : data.eligibility,
+          capability,
+        );
   useEffect(() => {
     if (consentOpen) dialog.current?.showModal();
     else dialog.current?.close();
   }, [consentOpen]);
   useEffect(() => () => request.current?.abort(), []);
-  if (capability.mode === "mock")
-    return (
-      <DemoInsights
-        initialScope={
-          selection.selectedInvestorIds.length === 1
-            ? "individual"
-            : "consolidated"
-        }
-      />
-    );
   const available =
-    capability.canAnalyzeFinancialPosition &&
+    status.eligible &&
     !!(saved?.reportVersionId ?? selection.reportVersionId) &&
     !!preview.summary;
   const names = selection.investors
@@ -133,6 +137,7 @@ export default function FinancialInsightsPanel({
     closeConsent();
     setLoading(true);
     setError("");
+    let failure: ReturnType<typeof analysisRequestFailure> | null = null;
     try {
       // IDs identify authorized server records. Names, rows and balances stay local.
       const response = await fetch("/api/financial-analysis", {
@@ -147,11 +152,19 @@ export default function FinancialInsightsPanel({
         }),
       });
       const body = await response.json();
-      if (!response.ok)
-        throw new Error(
-          safeError[body.error?.code] ??
-            "We could not generate the analysis. Your report and financial totals remain available.",
-        );
+      if (!response.ok) {
+        if (
+          [
+            "REPORT_CHANGED",
+            "DATA_REQUIRES_REVIEW",
+            "RECONCILIATION_FAILED",
+          ].includes(body.error?.code)
+        )
+          setSaved(null);
+        failure = analysisRequestFailure(body.error?.code);
+        setRequestFailure(failure);
+        throw new Error(failure.eligibility.message);
+      }
       if (
         body.source !== "live" ||
         body.summary?.source !== "trusted-server" ||
@@ -206,13 +219,12 @@ export default function FinancialInsightsPanel({
         setResult(body);
         setExpanded(true);
       }
-    } catch (reason) {
-      if (!controller.signal.aborted)
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : "Service temporarily unavailable",
-        );
+    } catch {
+      if (!controller.signal.aborted) {
+        const safe = failure ?? analysisRequestFailure("TEMPORARY_FAILURE");
+        setRequestFailure(safe);
+        setError(safe.eligibility.message);
+      }
     } finally {
       if (request.current === controller) {
         request.current = null;
@@ -255,11 +267,9 @@ export default function FinancialInsightsPanel({
           ]),
         ),
       });
-    } catch (reason) {
+    } catch {
       setError(
-        reason instanceof Error
-          ? reason.message
-          : "Saving is not yet available.",
+        "The summary could not be saved. Sign in with a verified account or try again later.",
       );
     } finally {
       setSaving(false);
@@ -270,71 +280,103 @@ export default function FinancialInsightsPanel({
       className="financialInsightsPanel printExcluded"
       aria-label="Financial position insights"
     >
+      <div className="analysisHeading">
+        <div>
+          <h2 id="financial-analysis-heading" tabIndex={-1}>
+            Financial Position Analysis
+          </h2>
+          <p>
+            Review the selected financial position and request educational
+            insights when available.
+          </p>
+        </div>
+      </div>
       <fieldset
         disabled={loading || saving}
         className="analysisInvestorSelector"
       >
         <legend>Investors to analyze</legend>
         {selection.investors
-          .filter((investor) =>
-            selection.selectedInvestorIds.includes(investor.investorId),
-          )
+          .filter((investor) => investor.name.trim())
           .map((investor) => (
             <label key={investor.investorId}>
               <input
                 type="checkbox"
+                data-analysis-investor-id={investor.investorId}
                 checked={ids.includes(investor.investorId)}
                 onChange={(event) => {
-                  setIds((current) =>
+                  onSelectionChange(
                     event.target.checked
-                      ? [...current, investor.investorId]
-                      : current.filter((id) => id !== investor.investorId),
+                      ? [...ids, investor.investorId]
+                      : ids.filter((id) => id !== investor.investorId),
                   );
-                  setResult(null);
-                  setSaved(null);
-                  setError("");
-                  setAgreed(false);
+                  // The scope key deliberately clears stale results and consent.
+                  // Restore keyboard focus after the newly scoped panel mounts.
+                  requestAnimationFrame(() =>
+                    Array.from(
+                      document.querySelectorAll<HTMLInputElement>(
+                        "[data-analysis-investor-id]",
+                      ),
+                    )
+                      .find(
+                        (input) =>
+                          input.dataset.analysisInvestorId ===
+                          investor.investorId,
+                      )
+                      ?.focus(),
+                  );
                 }}
               />
               {investor.name}
             </label>
           ))}
       </fieldset>
-      <p>
+      <p className="analysisScopeLabel">
         {ids.length > 1
-          ? "Consolidated analysis of the explicitly selected investors"
+          ? "Combined investor analysis"
           : "Individual investor analysis"}
       </p>
-      <p>
-        {names || "Select an investor"} · {selection.date} ·{" "}
-        {selection.currency}
+      <p className="analysisIdentity">
+        {ids.length > 1
+          ? `${ids.length} investors`
+          : names || "No investor selected"}{" "}
+        · {formatAnalysisDate(selection.date)} · {selection.currency}
       </p>
-      {preview.summary && (
+      {data.report.hasSelection && (
         <>
-          <dl className="insightsMetricGrid">
-            {preview.summary.metrics
-              .filter((metric) =>
-                [
-                  "assets.current",
-                  "liabilities.current",
-                  "net-worth.current",
-                  "data.included-accounts",
-                  "data.missing-previous",
-                  "data.review-flags",
-                  "data.low-confidence",
-                ].includes(metric.id),
-              )
-              .map((metric) => (
-                <div key={metric.id}>
-                  <dt>{metric.label}</dt>
-                  <dd>{metricValue(metric)}</dd>
-                </div>
-              ))}
+          <dl
+            className="insightsMetricGrid"
+            aria-label="Confirmed selected financial totals"
+          >
+            {[
+              {
+                label: "Total assets",
+                value: data.report.statement.currentShareAssets,
+              },
+              {
+                label: "Total liabilities",
+                value: data.report.statement.currentShareLiabilities,
+              },
+              {
+                label: "Net worth",
+                value: data.report.statement.currentShareNetWorth,
+              },
+            ].map((metric) => (
+              <div key={metric.label}>
+                <dt>{metric.label}</dt>
+                <dd>
+                  {selection.currency}{" "}
+                  {formatStatementAmount(metric.value, selection.currency)}
+                </dd>
+              </div>
+            ))}
           </dl>
-          <p>
-            {preview.summary.limitations.find((limitation) =>
-              limitation.startsWith("Previous-period"),
-            )}
+          <p className="analysisCoverage">
+            {data.report.rows.length} confirmed included account
+            {data.report.rows.length === 1 ? "" : "s"}
+            {data.eligibility.affectedRowCount > 0
+              ? ` · ${data.eligibility.affectedRowCount} rows awaiting review are excluded from these confirmed totals.`
+              : ""}
           </p>
         </>
       )}
@@ -359,10 +401,12 @@ export default function FinancialInsightsPanel({
           </>
         )}
       <button
+        id="analysis-trigger"
         ref={trigger}
         type="button"
         className="analyzeFinancialButton"
         disabled={loading || !available}
+        aria-describedby="financial-analysis-status"
         onClick={() => {
           setAgreed(false);
           setConsentOpen(true);
@@ -370,21 +414,115 @@ export default function FinancialInsightsPanel({
       >
         ✨ Analyze My Financial Position
       </button>
-      <p role="status" aria-live="polite">
-        {loading
-          ? "Analyzing"
-          : consentOpen
-            ? "Awaiting consent"
-            : error ||
-              preview.error ||
-              (result
+      <div
+        id="financial-analysis-status"
+        className={`analysisStatus ${!service.eligible ? "analysisStatusUnavailable" : ""}`}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        <strong>
+          {loading
+            ? "Analyzing"
+            : consentOpen
+              ? "Awaiting consent"
+              : result
                 ? "Analysis complete"
-                : available
-                  ? "Ready to analyze"
-                  : capability.reason)}
-      </p>
-      {!saved && !selection.reportVersionId && capability.mode === "live" && (
-        <p>A verified, saved report is required before analysis.</p>
+                : !service.eligible
+                  ? service.message
+                  : status.eligible
+                    ? saved
+                      ? "Ready to analyze"
+                      : "Save the confirmed summary to continue."
+                    : status.message}
+        </strong>
+        {status.reason === "not-authorized" && (
+          <a className="analysisStatusAction" href="/account">
+            Sign in or view your plan
+          </a>
+        )}
+      </div>
+      {data.eligibility.affectedRowCount > 0 && (
+        <div
+          className="analysisReviewWarning"
+          role="region"
+          aria-label="Review required before analysis"
+        >
+          <h3>Review required before analysis</h3>
+          <p>
+            {data.eligibility.affectedRowCount} included row
+            {data.eligibility.affectedRowCount === 1
+              ? " contains"
+              : "s contain"}{" "}
+            low-confidence or unreconciled values. Confirm or exclude these rows
+            before requesting financial analysis.
+          </p>
+          <ul>
+            {[
+              ...new Set(
+                data.issues
+                  .filter((issue) => issue.rowIds.length)
+                  .map((issue) => issue.message),
+              ),
+            ].map((message) => (
+              <li key={message}>{message}</li>
+            ))}
+          </ul>
+          <details className="analysisAffectedRows">
+            <summary>See affected rows</summary>
+            <ul>
+              {data.eligibility.affectedRowIds.map((id) => {
+                const row = selection.rows.find((row) => row.id === id);
+                return (
+                  <li key={id}>{row?.description.trim() || "Account row"}</li>
+                );
+              })}
+            </ul>
+          </details>
+          <button
+            type="button"
+            className="insightsTextButton"
+            onClick={() => onReviewRows(data.eligibility.affectedRowIds)}
+          >
+            Review {data.eligibility.affectedRowCount} flagged row
+            {data.eligibility.affectedRowCount === 1 ? "" : "s"}
+          </button>
+        </div>
+      )}
+      {!data.eligibility.eligible && !data.eligibility.affectedRowCount && (
+        <p className="analysisDataStatus" role="status">
+          {data.eligibility.message}
+        </p>
+      )}
+      {requestFailure?.eligibility.reason === "unreconciled-values" && (
+        <button
+          type="button"
+          className="insightsTextButton"
+          onClick={() => onReviewRows(data.report.rows.map((row) => row.id))}
+        >
+          Review selected rows
+        </button>
+      )}
+      {(error || preview.error) && (
+        <div className="insightsError" role="alert">
+          <p>{error || preview.error}</p>
+          {service.eligible &&
+            data.eligibility.eligible &&
+            requestFailure?.retryable && (
+              <button
+                className="insightsTextButton"
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setRequestFailure(null);
+                  setAgreed(false);
+                  setConsentOpen(true);
+                }}
+              >
+                Try again
+              </button>
+            )}
+        </div>
       )}
       {result && (
         <div className="insightsResult">
@@ -406,8 +544,8 @@ export default function FinancialInsightsPanel({
                 ownership-adjusted financial summary.
               </p>
               <p>
-                {names} · {result.summary.reportingPeriod.current} ·{" "}
-                {selection.currency}
+                {ids.length > 1 ? `${ids.length} investors` : names} ·{" "}
+                {result.summary.reportingPeriod.current} · {selection.currency}
               </p>
               <p>
                 Generated {new Date(result.generatedAt).toLocaleString("en-CA")}{" "}
@@ -458,7 +596,18 @@ export default function FinancialInsightsPanel({
           )}
         </div>
       )}
-      <p className="insightsDisclosure">{EDUCATIONAL_NOTICE}</p>
+      <p className="insightsDisclosure analysisDisclaimer">
+        ADAVI provides educational financial information based on the data you
+        confirm. It is not investment, tax, legal or accounting advice.
+      </p>
+      {capability.mode === "mock" && (
+        <details className="analysisDemo">
+          <summary>Open labelled synthetic demonstration</summary>
+          <DemoInsights
+            initialScope={ids.length > 1 ? "consolidated" : "individual"}
+          />
+        </details>
+      )}
       <dialog
         ref={dialog}
         className="insightsConsentDialog"
@@ -479,7 +628,8 @@ export default function FinancialInsightsPanel({
           statements will not be shared.
         </p>
         <p>
-          {names} · {selection.date} · {selection.currency}
+          {ids.length > 1 ? `${ids.length} investors` : names} ·{" "}
+          {formatAnalysisDate(selection.date)} · {selection.currency}
         </p>
         <h3>Information included</h3>
         <p>
@@ -504,8 +654,9 @@ export default function FinancialInsightsPanel({
             checked={agreed}
             onChange={(event) => setAgreed(event.target.checked)}
           />
-          I consent to the anonymous financial summary being processed to
-          generate this analysis.
+          I understand that the confirmed financial values for the selected
+          investor(s) will be sent securely to the authorized AI provider to
+          generate educational information.
         </label>
         <div className="insightsConsentActions">
           <button

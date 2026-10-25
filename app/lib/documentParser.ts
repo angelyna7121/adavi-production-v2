@@ -14,7 +14,7 @@ export type ParsedRow = {
   category: Category; holder: string; accountName: string; institution: string;
   description: string; current: number | ""; previous: number | null;
   kind: Kind; source: string;
-  ocrConfidence?: number; needsReview?: boolean;
+  ocrConfidence?: number; needsReview?: boolean; reviewConfirmed?: boolean;
   accountNumber?: string; sourcePage?: number; sourceInvestor?: string;
   sourceSubaccounts?: string[];
   manuallyReviewRequired?: boolean; isLeafAccount?: boolean; isSourceTotal?: boolean;

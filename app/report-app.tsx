@@ -4,13 +4,14 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import Image from "next/image";
 import Link from "next/link";
 import FinancialInsightsPanel from "./financial-insights-panel";
+import { inspectAnalysisData, confirmAnalysisRow, isAnalysisDateValid, formatAnalysisDate } from "./lib/financialInsights/eligibility";
 import type { DemoScope } from "./lib/financialInsights/contracts";
 import type { AnalysisCapability } from "./lib/financialInsights/settings";
 import type { InsightsSelection } from "./financial-insights-panel";
 import { parseDocument, type Kind, type Category, type ParsedRow as Row } from "./lib/documentParser";
 import { formatPeriodAmount } from "./lib/ocrFinancialParser";
-import { applyOwnershipToRow, assignInvestor, assignStatement, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, deriveSelectedInvestorReport, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
-import { formatStatementAmount, paginateMeasuredStatement, statementPresentation } from "./lib/statementPresentation";
+import { applyOwnershipToRow, assignInvestor, assignStatement, calculateAssignmentReconciliations, calculatePeriodTotals, confirmedDetailRows, createReportCsv, duplicateFinancialRow, effectiveOwnershipPercentage, hasUnnamedIncludedRows, paginateInvestorStatement, removeInvestorRows, removeStatementRows, setRowOwnershipOverride, setStatementOwnership, validateOwnershipPercentage, type InvestorStatement, type InvestorStatementPrintRow, type StatementRecord } from "./lib/reportData";
+import { formatStatementAmount, paginateMeasuredStatement } from "./lib/statementPresentation";
 import { reportPeriodLabels } from "./lib/reportPeriods";
 
 type Step = "upload" | "review" | "report";
@@ -53,6 +54,11 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
   const [searchStatus, setSearchStatus] = useState("");
   const [searchMatchCount, setSearchMatchCount] = useState(0);
   const [printInvestorIds, setPrintInvestorIds] = useState<string[]>([]);
+  const [analysisReviewIds,setAnalysisReviewIds] = useState<string[]|null>(null);
+  const [showAllAnalysisRows,setShowAllAnalysisRows] = useState(false);
+  const reportSelectionInitialized = useRef(false);
+  const analysisReturnFocus = useRef(false);
+  const editorReturnFocus = useRef<string|null>(null);
   const [customCategories, setCustomCategories] = useState<Record<Kind,string[]>>({Asset:[],Liability:[]});
   const searchMatchesRef = useRef<HTMLElement[]>([]);
   const searchIndexRef = useRef(-1);
@@ -64,16 +70,29 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
   const activeInvestor = investorList.find((investor) => investor.investorId === activeInvestorId);
   const currentTotals = useMemo(() => calculatePeriodTotals(rows, "current"), [rows]);
   const { assets, liabilities, netWorth } = currentTotals;
-  const periodLabels=reportPeriodLabels(statementDate);
+  const periodLabels=useMemo(()=>isAnalysisDateValid(statementDate)?reportPeriodLabels(statementDate):{current:"Statement date requires review",previous:"Previous period requires review"},[statementDate]);
   const currentPeriodLabel = periodLabels.current;
   const previousPeriodLabel = periodLabels.previous;
   const assignmentReconciliations = useMemo(() => calculateAssignmentReconciliations(rows), [rows]);
-  const selectedReport = useMemo(() => {
-    const report = deriveSelectedInvestorReport(rows, investorList, printInvestorIds);
-    const statement = statementPresentation(report.statement);
-    const assetMix = statement.sections[0].categories.map(category => ({category: category.category, total: category.currentShare, percentage: statement.currentShareAssets ? category.currentShare / statement.currentShareAssets * 100 : 0})).sort((a, b) => b.total - a.total);
-    return {...report, statement, assetMix};
-  }, [rows, investorList, printInvestorIds]);
+  const analysisData = useMemo(() => inspectAnalysisData({rows,investors:investorList,selectedInvestorIds:printInvestorIds,date:statementDate,currency}),[rows,investorList,printInvestorIds,statementDate,currency]);
+  const selectedReport = analysisData.report;
+  const reviewRows = analysisReviewIds && !showAllAnalysisRows ? rows.filter(row=>analysisReviewIds.includes(row.id)) : rows;
+  const affectedFocusKey = JSON.stringify(analysisData.eligibility.affectedRowIds);
+  useEffect(()=>{
+    const pending: string[] = JSON.parse(affectedFocusKey);
+    const frame=requestAnimationFrame(()=>{
+      if(step === "report" && analysisReturnFocus.current){const trigger=document.getElementById("analysis-trigger") as HTMLButtonElement|null;(trigger&&!trigger.disabled?trigger:document.getElementById("financial-analysis-heading"))?.focus();analysisReturnFocus.current=false;}
+      if(step === "review" && !rowEditor){
+        const targetId=editorReturnFocus.current ?? analysisReviewIds?.find(id=>pending.includes(id)) ?? analysisReviewIds?.[0];
+        if(targetId){const row=Array.from(document.querySelectorAll<HTMLElement>("[data-financial-row-id]")).find(element=>element.dataset.financialRowId===targetId);row?.querySelector<HTMLElement>("[data-confirm-analysis],button")?.focus();}
+        editorReturnFocus.current=null;
+      }
+    });return ()=>cancelAnimationFrame(frame);
+  },[step,rowEditor,analysisReviewIds,affectedFocusKey]);
+  function reviewAnalysisRows(ids:string[]){setShowAllAnalysisRows(false);setAnalysisReviewIds(ids);setSelectedRowId(ids[0]??null);setStep("review");}
+  function returnToAnalysis(){analysisReturnFocus.current=true;setStep("report");}
+  function confirmRow(id:string){try{const row=rows.find(row=>row.id===id);if(!row)return;const confirmed=confirmAnalysisRow(row);setRows(current=>current.map(row=>row.id===id?confirmed:row));setError("");}catch{setError("Correct invalid amounts, account details or ownership before confirming this row.");}}
+
 
   async function acceptFiles(list: FileList | File[]) {
     const selected = Array.from(list);
@@ -118,6 +137,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
   }
 
   function loadSample() {
+    setAnalysisReviewIds(null);setShowAllAnalysisRows(false);reportSelectionInitialized.current=false;setPrintInvestorIds([]);
     setRows(sampleRows);
     setInvestorList([{ investorId: "sample-a", name: "Alex Morgan", statements: [{statementId:"sample-statement-1",investorId:"sample-a",filename:"alex-bank.csv",ownershipPercentage:100,parseStatus:"ready"},{statementId:"sample-statement-2",investorId:"sample-a",filename:"alex-portfolio.csv",ownershipPercentage:50,parseStatus:"ready"}] }, { investorId: "sample-b", name: "Jordan Morgan", statements: [{statementId:"sample-statement-3",investorId:"sample-b",filename:"jordan-property.csv",ownershipPercentage:100,parseStatus:"ready"},{statementId:"sample-statement-4",investorId:"sample-b",filename:"jordan-mortgage.csv",ownershipPercentage:100,parseStatus:"ready"}] }]);
     setActiveInvestorId("sample-a");
@@ -132,7 +152,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
 
   function duplicateSelectedRow(){const source=rows.find((row)=>row.id===selectedRowId);if(!source)return;const duplicate=duplicateFinancialRow(source,crypto.randomUUID());setSelectedRowId(duplicate.id);setRowEditorError("");setRowEditor({mode:"duplicate",sourceRowId:source.id,draft:setRowOwnershipOverride(duplicate,effectiveOwnershipPercentage(source))});}
 
-  function editRow(row:Row){setSelectedRowId(row.id);setRowEditorError("");setRowEditor({mode:"edit",sourceRowId:row.id,draft:{...row}});}
+  function editRow(row:Row){editorReturnFocus.current=row.id;setSelectedRowId(row.id);setRowEditorError("");setRowEditor({mode:"edit",sourceRowId:row.id,draft:{...row}});}
 
   function deleteRow(id:string){const row=rows.find((item)=>item.id===id);if(!row||!window.confirm(`Delete ${row.description || "this row"}? This removes it only from ${row.investor || "this investor"}’s statement assignment.`))return;setRows((current)=>current.filter((item)=>item.id!==id));setSelectedRowId((current)=>current===id?null:current);setRowEditor((current)=>current?.sourceRowId===id?null:current);setRowEditorError("");}
 
@@ -150,9 +170,9 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
       setRowEditorError(reason instanceof Error?reason.message:"Enter an ownership percentage between 0 and 100.");
     }
   }
-  function saveRowEditor(){if(!rowEditor)return;try{if(!rowEditor.draft.description.trim())throw new Error("Account / Description is required.");if(rowEditor.draft.rawCurrent==="")throw new Error("Raw Current Value is required.");const saved=setRowOwnershipOverride(rowEditor.draft,rowEditor.draft.rowOwnershipOverride??null);setRows((current)=>{if(rowEditor.mode==="add")return [...current,saved];const index=current.findIndex((row)=>row.id===rowEditor.sourceRowId);if(index<0)return [...current,saved];if(rowEditor.mode==="edit")return current.map((row)=>row.id===rowEditor.sourceRowId?saved:row);return [...current.slice(0,index+1),saved,...current.slice(index+1)];});setSelectedRowId(saved.id);setRowEditor(null);setRowEditorError("");}catch(reason){setRowEditorError(reason instanceof Error?reason.message:"Review the row before saving.");}}
+  function saveRowEditor(){if(!rowEditor)return;try{if(!rowEditor.draft.description.trim())throw new Error("Account / Description is required.");if(rowEditor.draft.rawCurrent==="")throw new Error("Raw Current Value is required.");const saved=confirmAnalysisRow(setRowOwnershipOverride(rowEditor.draft,rowEditor.draft.rowOwnershipOverride??null));setRows((current)=>{if(rowEditor.mode==="add")return [...current,saved];const index=current.findIndex((row)=>row.id===rowEditor.sourceRowId);if(index<0)return [...current,saved];if(rowEditor.mode==="edit")return current.map((row)=>row.id===rowEditor.sourceRowId?saved:row);return [...current.slice(0,index+1),saved,...current.slice(index+1)];});setSelectedRowId(saved.id);setRowEditor(null);setRowEditorError("");}catch(reason){setRowEditorError(reason instanceof Error?reason.message:"Review the row before saving.");}}
 
-  function prepareReport(){const investorIds=[...new Set(confirmedDetailRows(rows).map((row)=>row.investorId).filter((id):id is string=>Boolean(id)))];setPrintInvestorIds(investorIds);setStep("report");}
+  function prepareReport(){if(!reportSelectionInitialized.current){const investorIds=[...new Set(confirmedDetailRows(rows).map(row=>row.investorId).filter((id):id is string=>Boolean(id)))];setPrintInvestorIds(investorIds.includes(activeInvestorId)?[activeInvestorId]:investorIds.slice(0,1));reportSelectionInitialized.current=true;}setAnalysisReviewIds(null);setStep("report");}
 
   function togglePrintInvestor(investorId:string){setPrintInvestorIds((current)=>current.includes(investorId)?current.filter((id)=>id!==investorId):[...current,investorId]);}
 
@@ -197,6 +217,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
     if(!window.confirm(`Remove ${investor.name.trim()||"this investor"}?${suffix}`))return;
     investor.statements.forEach((statement)=>{if(statement.objectUrl)URL.revokeObjectURL(statement.objectUrl);});
     setRows((current)=>removeInvestorRows(current,investor.investorId));
+    setPrintInvestorIds(current=>current.filter(id=>id!==investor.investorId));
     setInvestorList((current)=>{const remaining=current.filter((item)=>item.investorId!==investor.investorId);if(remaining.length){setActiveInvestorId(remaining[0].investorId);return remaining;}const empty={investorId:crypto.randomUUID(),name:"",statements:[]};setActiveInvestorId(empty.investorId);return [empty];});
   }
 
@@ -322,6 +343,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
 
         {step === "review" && (
           <section className="workspace reviewSpace">
+            {analysisReviewIds && <div className="analysisReviewToolbar" role="region" aria-label="Analysis row review"><h2>Review flagged financial rows</h2><p role="status" aria-live="polite">{analysisData.eligibility.affectedRowCount} included rows still require review for the selected investors. Confirm values against your statements, edit a row, or uncheck Include to exclude it.</p><div><button className="secondary" onClick={()=>setShowAllAnalysisRows(value=>!value)}>{showAllAnalysisRows?"Show flagged rows":"Show all rows"}</button><button className="primary" onClick={returnToAnalysis}>Return to analysis</button></div>{error&&<p role="alert">{error}</p>}</div>}
             <div className="sectionHead"><div><span className="eyebrow">Step 2</span><h2>Review & Reconcile Extracted Line Items</h2><p>Edit values, choose what to include, and confirm before generating the statement.</p></div><div className="reviewRowActions"><button className="secondary" onClick={addRow}>＋ Add Row</button><button className="secondary" disabled={!selectedRowId} aria-describedby="duplicate-row-help" title={selectedRowId?"Duplicate the selected account row":"Select an account row first"} onClick={duplicateSelectedRow}>Duplicate Selected Row</button><span id="duplicate-row-help" className="srOnly">Select one account row using its radio button before duplicating it.</span></div></div>
             <div className="metricGrid">
               <Metric label="Files processed" value={String(statements.length)} />
@@ -335,7 +357,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
             {assignmentReconciliations.filter((item)=>item.matches===false).map((item)=><div className="reconciliationWarning" role="alert" key={item.statementId}><strong>{item.investor} · {item.source}</strong><span> Calculated included net worth differs from this assignment’s source TOTAL NET WORTH by {money(Math.abs(item.difference!))}. Review only this investor assignment’s highlighted values.</span></div>)}
             <div className="tableWrap" tabIndex={0} aria-label="Review extracted financial rows">
               <table className="reviewTable"><thead><tr><th>Select</th><th>Include</th><th>Investor</th><th>Category</th><th>Holder / Institution</th><th>Account / Description</th><th>Statement / Ownership</th><th>Raw Current</th><th>Included Current</th><th>Raw Previous</th><th>Included Previous</th><th>Asset / Liability</th><th></th></tr></thead>
-                <tbody>{rows.map((row) => <tr key={row.id} className={`${row.needsReview ? "needsReview" : ""} ${effectiveOwnershipPercentage(row)<100?"ownershipAdjusted":""} ${selectedRowId===row.id?"selectedForDuplicate":""}`}>
+                <tbody>{reviewRows.map((row) => <tr key={row.id} data-financial-row-id={row.id} className={`${row.needsReview ? "needsReview" : ""} ${analysisData.eligibility.affectedRowIds.includes(row.id)?"analysisAffectedRow":""} ${effectiveOwnershipPercentage(row)<100?"ownershipAdjusted":""} ${selectedRowId===row.id?"selectedForDuplicate":""}`}>
                   <td><input type="radio" name="selected-review-row" aria-label={`Select ${row.description || "account row"} for duplication`} checked={selectedRowId===row.id} onChange={()=>setSelectedRowId(row.id)} /></td>
                   <td><input type="checkbox" aria-label={`Include ${row.description || "account row"}`} checked={row.include} onChange={(e) => update(row.id, { include: e.target.checked })} /></td>
                   <td><select aria-label="Assigned investor" value={row.investorId??""} className={!row.investor.trim() ? "invalid" : ""} onChange={(e) => { const selected = investorList.find((investor) => investor.investorId === e.target.value);if(row.statementId)reassignStatement(row.statementId,e.target.value);else update(row.id, { investor: selected?.name??"", investorId: selected?.investorId }); }}><option value="">Select investor</option>{investorList.filter((item) => item.name.trim()).map((item) => <option key={item.investorId} value={item.investorId}>{item.name.trim()}</option>)}</select></td>
@@ -348,7 +370,7 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
                   <td><input aria-label={`Raw previous value for ${row.description}`} type="number" value={row.rawPrevious!==undefined?(row.rawPrevious??""):(row.previous??"")} placeholder="$0" onChange={(e) => updateRawAmount(row.id,"previous",e.target.value === "" ? null : Number(e.target.value))} /></td>
                   <td className="effectiveValue">{money(row.previous)}</td>
                   <td><select value={row.kind} onChange={(e) => update(row.id, { kind: e.target.value as Kind })}><option>Asset</option><option>Liability</option></select></td>
-                  <td><div className="rowActions"><button type="button" className="editRowAction" aria-label={`Edit ${row.description || "row"}`} onClick={()=>editRow(row)}>Edit</button><button type="button" className="delete" aria-label={`Delete ${row.description || "row"}`} onClick={()=>deleteRow(row.id)}>×</button></div></td>
+                  <td><div className="rowActions">{row.include&&<button type="button" data-confirm-analysis aria-label={`Confirm values for ${row.description || "row"}`} className="confirmAnalysisRow" onClick={()=>confirmRow(row.id)}>{row.reviewConfirmed?"Values confirmed":"Confirm values"}</button>}<button type="button" className="editRowAction" aria-label={`Edit ${row.description || "row"}`} onClick={()=>editRow(row)}>Edit</button><button type="button" className="delete" aria-label={`Delete ${row.description || "row"}`} onClick={()=>deleteRow(row.id)}>×</button></div></td>
                 </tr>)}</tbody>
               </table>
             </div>
@@ -358,15 +380,16 @@ export default function ReportApp({ hasVerifiedPaidEntitlement, analysisCapabili
 
         {step === "report" && (
           <ReportCurrency.Provider value={currency}><section className="reportArea">
-            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your selected statement is complete</h2><p>{selectedReport.hasSelection?selectedReport.title:"No investors selected"} · {new Date(`${statementDate}T00:00:00`).toLocaleDateString("en-CA", { year: "numeric", month: "long", day: "numeric" })}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!selectedReport.hasSelection&&<span className="printSelectionError" role="alert">Select at least one investor to create a statement.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Print selected investors</button><button className="primary" disabled={!selectedReport.hasSelection} onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
+            <div className="reportReady"><div><span className="eyebrow">Report ready</span><h2>Your selected statement is complete</h2><p>{selectedReport.hasSelection?selectedReport.title:"No investors selected"} · {formatAnalysisDate(statementDate)}</p><fieldset className="printInvestorPicker"><legend>Investors to print</legend>{investorList.filter((investor)=>investor.name.trim()&&rows.some((row)=>row.investorId===investor.investorId&&row.include)).map((investor)=><label key={investor.investorId}><input type="checkbox" checked={printInvestorIds.includes(investor.investorId)} onChange={()=>togglePrintInvestor(investor.investorId)}/>{investor.name}</label>)}</fieldset>{!selectedReport.hasSelection&&<span className="printSelectionError" role="alert">Select at least one investor to create a statement.</span>}</div><div className="buttonRow"><button className="secondary" onClick={() => setStep("review")}>Edit data</button><button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Print selected investors</button><button className="primary" disabled={!selectedReport.hasSelection} onClick={downloadCsv}>Download data</button>{hasVerifiedPaidEntitlement ? <button className="secondary" disabled={!selectedReport.hasSelection} onClick={printStatement}>Remove adavi.ai branding</button> : <button className="secondary" onClick={() => setShowUpgrade(true)}>Upgrade for CSV & unbranded reports</button>}</div></div>
+            {!selectedReport.hasSelection&&<FinancialInsightsPanel capability={analysisCapability} selection={{rows,investors:investorList,selectedInvestorIds:printInvestorIds,date:statementDate,currency}} onSelectionChange={setPrintInvestorIds} onReviewRows={reviewAnalysisRows}/>}
             {selectedReport.hasSelection&&<article className={`paper screenReport investorStatementScreen ${hasVerifiedPaidEntitlement ? "paidReport" : "freeReport"}`}>
               {!hasVerifiedPaidEntitlement && <div className="printWatermark" aria-hidden="true">adavi</div>}
-              <StatementExecutive reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} analysisScope={selectedReport.investorIds.length === 1 ? "individual" : "consolidated"} analysisKey={JSON.stringify({ids:selectedReport.investorIds,date:statementDate,currency,rows})} analysisCapability={analysisCapability} analysisSelection={{rows,investors:investorList,selectedInvestorIds:selectedReport.investorIds,date:statementDate,currency,preferredInvestorId:activeInvestorId}} />
+              <StatementExecutive reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} analysisScope={selectedReport.investorIds.length === 1 ? "individual" : "consolidated"} analysisKey={JSON.stringify({ids:selectedReport.investorIds,date:statementDate,currency,rows})} analysisCapability={analysisCapability} analysisSelection={{rows,investors:investorList,selectedInvestorIds:printInvestorIds,date:statementDate,currency}} onAnalysisSelectionChange={setPrintInvestorIds} onAnalysisReviewRows={reviewAnalysisRows} reviewCount={analysisData.eligibility.affectedRowCount} />
               <NetWorthSummary reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement}/>
               <section className="screenStatementDetail" aria-labelledby="assets-liabilities-title"><StatementHeading id="assets-liabilities-title" reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/><InvestorStatementTable statement={selectedReport.statement} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel}/></section>
               {!hasVerifiedPaidEntitlement && <footer className="paperFooter"><span>Not tax, legal, accounting, or investment advice</span></footer>}
             </article>}
-            {selectedReport.hasSelection&&<PrintReport reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} paid={hasVerifiedPaidEntitlement} hasPartialOwnership={selectedReport.rows.some((row)=>effectiveOwnershipPercentage(row)<100)} />}
+            {selectedReport.hasSelection&&<PrintReport reportName={selectedReport.title} currency={currency} currentLabel={currentPeriodLabel} previousLabel={previousPeriodLabel} statement={selectedReport.statement} assetMix={selectedReport.assetMix} paid={hasVerifiedPaidEntitlement} reviewCount={analysisData.eligibility.affectedRowCount} hasPartialOwnership={selectedReport.rows.some((row)=>effectiveOwnershipPercentage(row)<100)} />}
           </section></ReportCurrency.Provider>
         )}
       </div>
@@ -392,19 +415,21 @@ function ReportPageHeader({label,title,reportName,currency,currentLabel,previous
   return <header className="reportPageHeader"><div className="reportBrand"><PrintLogo/><span aria-hidden="true">{label === "Net Worth Overview" ? "Private wealth statement" : ""}</span></div><div className="reportPageIdentity"><p>{reportName.toLocaleUpperCase("en-CA")}</p><h1>{title}</h1></div><dl><div><dt>Current</dt><dd>{currentLabel}</dd></div><div><dt>Previous</dt><dd>{previousLabel}</dd></div><div><dt>Currency</dt><dd>{currency}</dd></div></dl></header>;
 }
 
-function StatementExecutive({reportName,currency,currentLabel,previousLabel,statement,assetMix,analysisScope,analysisKey,analysisCapability,analysisSelection}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;analysisScope?:DemoScope;analysisKey?:string;analysisCapability?:AnalysisCapability;analysisSelection?:InsightsSelection}){
+function StatementExecutive({reportName,currency,currentLabel,previousLabel,statement,assetMix,analysisScope,analysisKey,analysisCapability,analysisSelection,onAnalysisSelectionChange,onAnalysisReviewRows,reviewCount=0}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;analysisScope?:DemoScope;analysisKey?:string;analysisCapability?:AnalysisCapability;analysisSelection?:InsightsSelection;onAnalysisSelectionChange?:(ids:string[])=>void;onAnalysisReviewRows?:(ids:string[])=>void;reviewCount?:number}){
   const money=useStatementMoney();
   const change=statement.currentShareNetWorth-statement.previousShareNetWorth;
-  const debtRatio=statement.currentShareAssets ? statement.currentShareLiabilities/statement.currentShareAssets*100 : 0;
+  const debtRatio=statement.currentShareAssets>0 ? statement.currentShareLiabilities/statement.currentShareAssets*100 : null;
   return <section className="statementExecutive overviewContent">
     <ReportPageHeader label="Net Worth Overview" title="Net Worth Overview" reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel}/>
     <div className="wealthOverview"><div className="primaryWealth"><span>Current net worth</span><strong>{money(statement.currentShareNetWorth)}</strong></div><dl><div><dt>Previous net worth</dt><dd>{money(statement.previousShareNetWorth)}</dd></div><div><dt>Change in net worth</dt><dd>{money(change)}</dd></div></dl></div>
     <div className="overviewBalanceCards"><div><span>Total assets</span><strong>{money(statement.currentShareAssets)}</strong></div><div><span>Total liabilities</span><strong>{money(statement.currentShareLiabilities)}</strong></div></div>
-    {analysisScope&&analysisCapability&&analysisSelection&&<FinancialInsightsPanel key={analysisKey} capability={analysisCapability} selection={analysisSelection}/>}
+    {reviewCount>0&&<p className="confirmedTotalsNotice">Confirmed financial totals are shown. {reviewCount} included rows awaiting review are excluded.</p>}
+    {analysisScope&&analysisCapability&&analysisSelection&&onAnalysisSelectionChange&&onAnalysisReviewRows&&<FinancialInsightsPanel key={analysisKey} capability={analysisCapability} selection={analysisSelection} onSelectionChange={onAnalysisSelectionChange} onReviewRows={onAnalysisReviewRows}/>}
     <section className="executiveAssetMix" aria-label="Asset composition"><div className="executiveSectionTitle"><h2>How the portfolio is positioned</h2><small>Share of current assets</small></div>
+      {!assetMix.length&&<p className="analysisCoverage">No confirmed asset balances are available for portfolio allocation.</p>}
       <div className="compositionBar" aria-hidden="true">{assetMix.map((entry,index)=><i key={entry.category} className={`mixTone${index%6}`} style={{width:`${Math.max(0,entry.percentage)}%`}}/>)}</div>
       <div className="executiveMixRows">{assetMix.map((entry,index)=><div className="executiveMixRow" key={entry.category}><i className={`mixTone${index%6}`} aria-hidden="true"/><strong>{entry.category}</strong><em>{entry.percentage.toFixed(0)}%</em></div>)}</div>
-      <div className="compositionBalance"><div><span>Net worth / assets</span><strong>{(statement.currentShareAssets ? statement.currentShareNetWorth/statement.currentShareAssets*100 : 0).toFixed(0)}%</strong></div><div><span>Liabilities / assets</span><strong>{debtRatio.toFixed(0)}%</strong></div></div>
+      <div className="compositionBalance"><div><span>Net worth / assets</span><strong>{statement.currentShareAssets>0?`${(statement.currentShareNetWorth/statement.currentShareAssets*100).toFixed(0)}%`:"Unavailable"}</strong></div><div><span>Liabilities / assets</span><strong>{debtRatio===null?"Unavailable":`${debtRatio.toFixed(0)}%`}</strong></div></div>
     </section>
   </section>;
 }
@@ -428,7 +453,7 @@ function FragmentCategory({category}:{category:InvestorStatement["sections"][num
 
 function PrintFooter({page,total,paid,type}:{page:number;total:number;paid:boolean;type:string}){return <footer className="printPageFooter"><div><strong>{type}</strong>{!paid&&<small>Created with adavi · Not tax, legal, accounting, or investment advice</small>}</div><span>Page {page} of {total}</span></footer>;}
 function PrintStatementTable({rows}:{rows:InvestorStatementPrintRow[]}){return <table className="investorStatementTable printInvestorStatementTable"><StatementColgroup/><StatementTableHead/><tbody>{rows.map((row)=><tr className={`statementPrintRow statementPrint-${row.level}`} key={row.key}><th scope="row">{row.label}{row.holder&&row.holder!==row.label&&<small>{row.holder}</small>}</th><StatementValues row={row} account={row.level==="account"}/></tr>)}</tbody></table>;}
-function PrintReport({reportName,currency,currentLabel,previousLabel,statement,assetMix,paid}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;paid:boolean;hasPartialOwnership:boolean}){
+function PrintReport({reportName,currency,currentLabel,previousLabel,statement,assetMix,paid,reviewCount=0}:{reportName:string;currency:string;currentLabel:string;previousLabel:string;statement:InvestorStatement;assetMix:Array<{category:string;total:number;percentage:number}>;paid:boolean;hasPartialOwnership:boolean;reviewCount?:number}){
   const allRows=useMemo(()=>paginateInvestorStatement(statement,Number.MAX_SAFE_INTEGER).flat(),[statement]);
   const measurement=useRef<HTMLElement>(null);
   const [layout,setLayout]=useState<{source:InvestorStatementPrintRow[];pages:InvestorStatementPrintRow[][];error?:string}|null>(null);
@@ -455,7 +480,7 @@ function PrintReport({reportName,currency,currentLabel,previousLabel,statement,a
   return <>
     {layout?.error&&<p role="alert" className="printSelectionError">{layout.error}</p>}
     <div className={`printReport ${branding}`} aria-hidden="true" data-pagination-ready={layout?.source===allRows&&!layout.error}>
-      <section className="printPage reportPage overviewPage">{!paid&&<div className="pageWatermark">adavi</div>}<StatementExecutive reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement} assetMix={assetMix}/><PrintFooter page={1} total={1} paid={paid} type="Net Worth Overview"/></section>
+      <section className="printPage reportPage overviewPage">{!paid&&<div className="pageWatermark">adavi</div>}<StatementExecutive reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement} assetMix={assetMix} reviewCount={reviewCount}/><PrintFooter page={1} total={1} paid={paid} type="Net Worth Overview"/></section>
       <section className="printPage reportPage summaryPage">{!paid&&<div className="pageWatermark">adavi</div>}<NetWorthSummary reportName={reportName} currency={currency} currentLabel={currentLabel} previousLabel={previousLabel} statement={statement}/><PrintFooter page={1} total={1} paid={paid} type="Net Worth Summary"/></section>
       {schedulePages.map((rows,index)=><section className="printPage reportPage detailedPage" key={`statement-${index}`}>{!paid&&<div className="pageWatermark">adavi</div>}{heading}<PrintStatementTable rows={rows}/><PrintFooter page={index+1} total={schedulePages.length} paid={paid} type="Net Worth Detailed"/></section>)}
     </div>

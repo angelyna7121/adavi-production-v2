@@ -1,3 +1,4 @@
+import { serviceEligibility } from "../../lib/financialInsights/eligibility";
 import {
   analysisCapability,
   liveDependencies,
@@ -13,5 +14,6 @@ export async function POST(request: Request) {
     capability.mode === "live" && capability.canAnalyzeFinancialPosition
       ? liveDependencies()
       : null,
+    serviceEligibility(capability),
   );
 }

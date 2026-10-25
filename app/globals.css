@@ -473,4 +473,39 @@ th { color:#8492a6; text-transform:uppercase; letter-spacing:.04em; font-size:11
 .analysisInvestorSelector { display:flex;flex-wrap:wrap;gap:12px 24px;border:1px solid #cbd5e1;border-radius:10px;padding:14px;margin-bottom:12px; }
 .analysisInvestorSelector legend { padding:0 8px;font-weight:700; }
 .analysisInvestorSelector label { display:flex;align-items:center;gap:8px;margin:0; }
-.financialInsightsPanel button:disabled { opacity:.6;cursor:not-allowed; }
+.financialInsightsPanel button:disabled { opacity:1;cursor:not-allowed; }
+
+/* Selected financial position: readable states and an actionable review path. */
+.financialInsightsPanel { padding:24px; overflow-wrap:anywhere; }
+.analysisHeading h2 { margin:0 0 6px; font-size:24px; line-height:1.25; color:#123154; }
+.analysisHeading p { margin:0 0 18px; color:#40546e; }
+.analysisInvestorSelector { display:flex;flex-wrap:wrap;align-items:center;gap:8px 20px;padding:10px 12px;margin:0 0 16px;min-width:0; }
+.analysisInvestorSelector legend { font-size:13px;padding:0 6px; }
+.analysisInvestorSelector label { color:#123154;font-size:14px;gap:8px; }
+.analysisInvestorSelector input { display:inline-block;width:18px;height:18px;margin:0;padding:0;accent-color:#123154;flex-shrink:0; }
+.analysisScopeLabel { font-weight:750;margin:0 0 2px; }
+.analysisIdentity,.analysisCoverage { margin:0;color:#40546e; }
+.analysisCoverage { font-size:13px;margin:-4px 0 18px; }
+.financialInsightsPanel button:disabled { opacity:1;cursor:not-allowed; }
+.financialInsightsPanel .analyzeFinancialButton:disabled { opacity:1;color:#123154;background:#edf2f7;border:2px solid #123154;box-shadow:none; }
+.financialInsightsPanel .analyzeFinancialButton { max-width:100%;white-space:normal;line-height:1.4; }
+.analysisStatus { margin-top:14px;padding:12px 14px;border:1px solid #bdc9d8;border-radius:9px;background:#fff;color:#123154; }
+.analysisStatusUnavailable { background:#edf2f7; }
+.analysisStatusAction { display:inline-block;color:#123154;text-decoration:underline;margin-left:12px; }
+.analysisReviewWarning { margin-top:14px;border:1px solid #9a751f;border-left:4px solid #9a751f;border-radius:9px;background:#fff9e9;padding:16px;color:#4d3c12; }
+.analysisReviewWarning h3 { margin:0 0 6px;font-size:17px; }
+.analysisReviewWarning p { margin:0 0 10px; }
+.analysisReviewWarning ul { padding-left:20px;list-style:disc;margin:8px 0 14px; }
+.analysisDataStatus { margin:12px 0;color:#123154; }
+.financialInsightsPanel .analysisDisclaimer { padding:0;background:none;font-size:12px;line-height:1.6;color:#455a73;margin:18px 0 0; }
+.analysisDemo { margin-top:18px; }
+.analysisReviewToolbar { padding:20px 24px;border-bottom:1px solid #536884; }
+.analysisReviewToolbar h2 { margin:0 0 8px; }
+.analysisReviewToolbar>div { display:flex;gap:12px;flex-wrap:wrap;margin-top:12px; }
+.reviewTable tr.analysisAffectedRow { outline:2px solid #e5b94c;outline-offset:-2px;background:#24364c; }
+.confirmAnalysisRow { border:1px solid #e5b94c;border-radius:7px;background:#f4d481;color:#102b49;font-weight:700;padding:8px; }
+.executiveMixRow { min-width:0; }.executiveMixRow strong { overflow-wrap:anywhere;min-width:0; }
+@media(max-width:760px){.financialInsightsPanel { margin:0 16px 24px;padding:18px; }.analysisHeading h2 { font-size:21px; }.analysisInvestorSelector { gap:10px 16px; }.insightsMetricGrid dd { font-size:20px; }.analysisReviewToolbar { padding:16px; }.analysisStatusAction { display:block;margin:8px 0 0; }}
+.confirmedTotalsNotice { margin:0 46px 20px;padding:10px 14px;border-left:3px solid #9a751f;background:#fff9e9;color:#4d3c12;font-size:13px; }
+@media(max-width:760px){.confirmedTotalsNotice { margin:0 16px 20px; }}
+.analysisAffectedRows { margin:10px 0 14px; }.analysisAffectedRows summary { cursor:pointer;font-weight:700; }

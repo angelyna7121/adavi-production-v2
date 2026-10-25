@@ -1,3 +1,4 @@
+import type { AnalysisEligibility } from "../eligibility";
 import { InsightsError } from "../contracts";
 import {
   analyzeAuthorized,
@@ -14,6 +15,7 @@ const headers = {
 export async function handleLiveAnalysis(
   request: Request,
   deps: LiveAnalysisDependencies | null,
+  availability?: AnalysisEligibility,
 ): Promise<Response> {
   const fail = (code: string, status: number) =>
     Response.json(
@@ -21,7 +23,9 @@ export async function handleLiveAnalysis(
         error: {
           code,
           message:
-            "We could not generate the analysis. Your report and financial totals remain available.",
+            code === "SERVICE_DISABLED"
+              ? "Financial analysis is not available in this environment."
+              : "We could not generate the analysis. Your report and financial totals remain available.",
         },
       },
       { status, headers },
@@ -45,7 +49,12 @@ export async function handleLiveAnalysis(
         (value) => !Number.isFinite(value) || value <= 0,
       )
     )
-      return fail("SERVICE_UNAVAILABLE", 503);
+      return fail(
+        availability?.reason === "service-disabled"
+          ? "SERVICE_DISABLED"
+          : "SERVICE_UNAVAILABLE",
+        503,
+      );
     const session = await deps.authenticate(request);
     if (!session || !session.emailVerified)
       return fail("AUTHENTICATION_REQUIRED", 401);

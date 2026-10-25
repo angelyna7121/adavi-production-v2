@@ -1,9 +1,7 @@
+import { inspectAnalysisData } from "./eligibility";
 import type { ParsedRow } from "../documentParser";
-import {
-  deriveSelectedInvestorReport,
-  type ReportInvestor,
-} from "../reportData";
-import { statementPresentation, roundCurrency } from "../statementPresentation";
+import { type ReportInvestor } from "../reportData";
+import { roundCurrency } from "../statementPresentation";
 import { reportPeriodDates } from "../reportPeriods";
 import {
   categories,
@@ -38,18 +36,24 @@ export function snapshotForSaving(
   const normalized = ids.map((id) => {
     const localReference = crypto.randomUUID();
     references[id] = localReference;
-    const report = deriveSelectedInvestorReport(rows, investors, [id]),
-      statement = statementPresentation(report.statement);
+    const report = inspectAnalysisData({
+        rows,
+        investors,
+        selectedInvestorIds: [id],
+        date,
+        currency,
+      }).report,
+      statement = report.statement;
     const grouped = new Map<string, NormalizedCategory>();
     for (const section of statement.sections)
       for (const category of section.categories) {
-        const name = (categories[section.kind] as readonly string[]).includes(
-          category.category,
-        )
-          ? category.category
-          : section.kind === "Asset"
-            ? "Other Assets"
-            : "Other Liabilities";
+        const name =
+          (categories[section.kind] as readonly string[]).find(
+            (name) =>
+              name.toLocaleLowerCase("en-CA") ===
+              category.category.toLocaleLowerCase("en-CA"),
+          ) ??
+          (section.kind === "Asset" ? "Other Assets" : "Other Liabilities");
         const members = report.rows.filter((row) =>
           category.accounts.some((account) => account.id === row.id),
         );
