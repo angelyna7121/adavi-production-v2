@@ -1,3 +1,4 @@
+import { parseFinancialPositionWords, statementType } from "./financialPositionParser";
 import { inferCategory, type Category, type Kind, type ParsedRow } from "./documentParser";
 
 export type OcrWord = { text:string; confidence:number; x0:number; y0:number; x1:number; y1:number };
@@ -161,7 +162,7 @@ function financialHeading(text:string):string|null {
 }
 
 export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseResult {
-  let lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");if(!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
+  let lines=reconstructOcrLines(words);const fullText=lines.map((line)=>line.text).join("\n");const type=statementType(fullText);if(type==="position"){const result=parseFinancialPositionWords(words,source);return {rows:result.rows,sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0};}if(type==="earnings"||!/\bnet\s*worth\b/i.test(fullText))return {rows:[],sourceCurrentNetWorth:null,sourcePreviousNetWorth:null,averageConfidence:0};
   const positionedWords=words.map((word)=>({text:word.text,centerX:(word.x0+word.x1)/2,centerY:(word.y0+word.y1)/2}));
   const positionedLines=lines.map((line)=>{const dateParts=line.words.filter((word)=>!/^equity$/i.test(word.text));return {text:dateParts.map((word)=>word.text).join(" "),centerX:dateParts.reduce((sum,word)=>sum+(word.x0+word.x1)/2,0)/Math.max(1,dateParts.length),centerY:line.y};});
   let columns:PeriodColumns;
@@ -210,4 +211,4 @@ export function parseOcrFinancialWords(words:OcrWord[],source:string):OcrParseRe
   return {rows,sourceCurrentNetWorth,sourcePreviousNetWorth,averageConfidence:words.length?words.reduce((sum,word)=>sum+word.confidence,0)/words.length:0,periodColumns:{...columns,tolerance:columnTolerance}};
 }
 
-export function financialScore(text:string,confidence:number){const amounts=text.match(/\(?\s*\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d{2})?\s*\)?/g)?.length??0;const headings=["net worth","investments","loans receivable","mortgages","loan payable","total net worth","portfolio evaluation","total portfolio value","wood gundy"].filter((heading)=>text.toLowerCase().includes(heading)).length;return confidence+amounts*2+headings*10;}
+export function financialScore(text:string,confidence:number){const amounts=text.match(/\(?\s*\$?\s*\d{1,3}(?:,\d{3})+(?:\.\d{2})?\s*\)?/g)?.length??0;const headings=["statement of financial position","balance sheet","statement of earnings","assets","liabilities","net worth","investments","loans receivable","mortgages","loan payable","total net worth","portfolio evaluation","total portfolio value","wood gundy"].filter((heading)=>text.toLowerCase().includes(heading)).length;return confidence+amounts*2+headings*10;}

@@ -1,3 +1,4 @@
+import { statementSection } from "./financialPositionParser";
 import type { PDFPageProxy } from "pdfjs-dist";
 
 export type Kind = "Asset" | "Liability";
@@ -14,6 +15,9 @@ export type ParsedRow = {
   category: Category; holder: string; accountName: string; institution: string;
   description: string; current: number | ""; previous: number | null;
   kind: Kind; source: string;
+  sourceAssetTotalCurrent?:number|null; sourceAssetTotalPrevious?:number|null;
+  sourceLiabilityTotalCurrent?:number|null; sourceLiabilityTotalPrevious?:number|null;
+  sourceReviewPages?:number[]; sourceReviewReason?:string;
   ocrConfidence?: number; needsReview?: boolean; reviewConfirmed?: boolean;
   accountNumber?: string; sourcePage?: number; sourceInvestor?: string;
   sourceSubaccounts?: string[];
@@ -131,11 +135,10 @@ export function parseFinancialText(text: string, source: string): ParsedRow[] {
   let accountType = "";
   const rows: ParsedRow[] = [];
   const seen = new Set<string>();
-  for (const raw of text.split(/\r?\n/)) {
+  for (const [lineIndex,raw] of text.split(/\r?\n/).entries()) {
     const line = raw.replace(/\s+/g, " ").trim();
-    if (/^(?:current\s+)?assets?\s*:?$/i.test(line)) { section = "Asset"; holder = ""; accountType = ""; continue; }
-    if (/^(?:current\s+)?liabilities?\s*:?$/i.test(line)) { section = "Liability"; holder = ""; accountType = ""; continue; }
-    if (/^(?:shareholders?'?\s+)?equity\s*:?$/i.test(line) || /^(?:income|revenue|expenses?)\s*:?$/i.test(line)) { section = null; continue; }
+    const detectedSection=statementSection(line);
+    if(detectedSection&&!/\d/.test(line)){section=detectedSection==="excluded"?null:detectedSection;holder="";accountType="";continue;}
     if (!section || !line || totalLine.test(line) || prohibited.test(line) || metadata.test(line)) continue;
     const matches = [...line.matchAll(amountPattern)]
       .filter((match) => !/^\s*[A-Za-z]/.test(line.slice((match.index ?? 0) + match[0].length)))
@@ -154,7 +157,7 @@ export function parseFinancialText(text: string, source: string): ParsedRow[] {
     const current = matches.length > 1 ? matches[matches.length - 2].value : matches[0].value;
     const previous = matches.length > 1 ? matches[matches.length - 1].value : null;
     const key = `${section}|${holder}|${label}|${current}|${previous}`.toLowerCase();
-    if (!seen.has(key)) { seen.add(key); rows.push(makeRow(source, section, holder, accountType || label, label, current, previous)); }
+    if (!seen.has(key)) { seen.add(key); rows.push({...makeRow(source, section, holder, accountType || label, label, current, previous),sourceRow:lineIndex+1}); }
   }
   return rows;
 }
@@ -218,29 +221,86 @@ async function parseImage(file: File, progress: Progress) {
 export function rotationCandidates(baseRotation:number){return [0,90,180,270].map((extra)=>(baseRotation+extra)%360);}
 export function shouldUseOcr(embeddedRows:ParsedRow[]){return embeddedRows.length===0;}
 async function renderPage(page:PDFPageProxy,rotation:number){const viewport=page.getViewport({scale:4,rotation});const canvas=document.createElement("canvas");canvas.width=Math.ceil(viewport.width);canvas.height=Math.ceil(viewport.height);const context=canvas.getContext("2d",{alpha:false,willReadFrequently:true});if(!context)throw new Error("Canvas context unavailable");context.fillStyle="#ffffff";context.fillRect(0,0,canvas.width,canvas.height);await page.render({canvasContext:context,viewport,canvas,background:"#ffffff"}).promise;return canvas;}
+export class DocumentImportError extends Error {
+  constructor(public code:"unreadable"|"unsupported"|"uncertain",public pages:number[]){
+    super(`${code==="unreadable"?"No readable financial content":code==="unsupported"?"Unsupported statement type":"Financial rows or dated columns are uncertain"}. Review page${pages.length===1?"":"s"} ${pages.join(", ")}. The uploaded statement remains available for manual review.`);
+    this.name="DocumentImportError";
+  }
+}
 async function parsePdf(file: File, progress: Progress) {
-  const pdfjs = await import("pdfjs-dist");
-  const { extractWordsWithBoundingBoxes, financialScore, parseOcrFinancialWords, reconstructOcrLines, recoverMissingPeriodFromCrop } = await import("./ocrFinancialParser");
-  pdfjs.GlobalWorkerOptions.workerSrc = "/pdf/pdf.worker.min.mjs";
-  const pdf = await pdfjs.getDocument({ data:new Uint8Array(await file.arrayBuffer()) }).promise;
-  const pages=[];const embeddedRows:ParsedRow[]=[];const embeddedPages:PortfolioEvaluationPage[]=[];
+  const pdfjs=await import("pdfjs-dist");
+  const {extractWordsWithBoundingBoxes,financialScore,parseOcrFinancialWords,reconstructOcrLines,recoverMissingPeriodFromCrop}=await import("./ocrFinancialParser");
+  const {parseFinancialPositionWords,statementType,isEquityOnlyPage}=await import("./financialPositionParser");
+  const {recoverDarkHeadingWords}=await import("./ocrDarkBands");
+  pdfjs.GlobalWorkerOptions.workerSrc="/pdf/pdf.worker.min.mjs";
+  let pdf:Awaited<ReturnType<typeof pdfjs.getDocument>["promise"]>;
+  try{pdf=await pdfjs.getDocument({data:new Uint8Array(await file.arrayBuffer())}).promise;}
+  catch{throw new DocumentImportError("unreadable",[1]);}
+  const rows:ParsedRow[]=[];const issues:Array<{page:number;code:"unreadable"|"unsupported"|"uncertain"}>=[];
+  const portfolioPages:PortfolioEvaluationPage[]=[];
+  let worker:Awaited<ReturnType<typeof createOcrWorker>>|undefined;
   try {
-    for(let n=1;n<=pdf.numPages;n++){progress(`Reading PDF text page ${n} of ${pdf.numPages}…`);const page=await pdf.getPage(n);pages.push(page);const content=await page.getTextContent();const text=content.items.map((item)=>"str" in item?`${item.str}${"hasEOL" in item&&item.hasEOL?"\n":" "}`:"").join("");embeddedPages.push({text,pageNumber:n,confidence:100});embeddedRows.push(...parseFinancialText(text,file.name));}
-    const embeddedPortfolio=parseWoodGundyPortfolioPages(embeddedPages,file.name);if(embeddedPortfolio.length)return embeddedPortfolio;
-    if(!shouldUseOcr(embeddedRows))return embeddedRows;
-    const worker=await createOcrWorker(progress);const rows:ParsedRow[]=[];const portfolioPages:PortfolioEvaluationPage[]=[];
-    try {
-      for(let index=0;index<pages.length;index++){const page=pages[index];let best:{score:number;text:string;confidence:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>;canvas:HTMLCanvasElement}|undefined;
-        for(const rotation of rotationCandidates(page.rotate||0)){progress(`OCR page ${index+1} of ${pages.length} at ${rotation}°…`);const canvas=await renderPage(page,rotation);const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const text=result.data.text||"";const score=financialScore(text,result.data.confidence||0);if(!best||score>best.score)best={score,text,confidence:result.data.confidence||0,words,canvas};}
-        if(!best||(!best.words.length&&!best.text.trim()))continue;const positionedText=best.words.length?reconstructOcrLines(best.words).map((line)=>line.text).join("\n"):"";portfolioPages.push({text:[positionedText,best.text].filter(Boolean).join("\n"),pageNumber:index+1,confidence:best.confidence});if(!best.words.length)continue;let parsed;try{parsed=parseOcrFinancialWords(best.words,file.name);}catch{continue;}
-        parsed.rows.forEach((row)=>{row.sourcePage=index+1;});if(parsed.periodColumns){for(const row of parsed.rows.filter((item)=>(item.current===""||item.previous===null)&&item.ocrRowBox)){progress(`Rechecking ${row.description} at higher resolution…`);const recovered=await recoverMissingPeriodFromCrop(best.canvas,row.ocrRowBox!,{current:row.current===""?null:Number(row.current),previous:row.previous},parsed.periodColumns,async(canvas)=>extractWordsWithBoundingBoxes((await worker.recognize(canvas,{}, {text:false,blocks:true})).data));row.current=recovered.current===null?"":Math.abs(recovered.current);row.previous=recovered.previous===null?null:Math.abs(recovered.previous);row.needsReview=row.current===""||row.previous===null||row.needsReview;}}
-        rows.push(...parsed.rows);
+    for(let n=1;n<=pdf.numPages;n++){
+      try {
+      progress(`Reading PDF page ${n} of ${pdf.numPages}…`);
+      const page=await pdf.getPage(n);const viewport=page.getViewport({scale:1});const content=await page.getTextContent();
+      const embeddedWords=content.items.flatMap(item=>{
+        if(!("str" in item)||!item.str.trim())return [];
+        const [x,y]=viewport.convertToViewportPoint(item.transform[4],item.transform[5]);const height=Math.max(item.height,8);
+        return [{text:item.str,confidence:100,x0:x,y0:y-height,x1:x+item.width,y1:y}];
+      });
+      const embeddedText=reconstructOcrLines(embeddedWords).map(line=>line.text).join("\n");
+      const embeddedRawText=content.items.map(item=>"str" in item?`${item.str}${"hasEOL" in item&&item.hasEOL?"\n":" "}`:"").join("");
+      let type=statementType(embeddedText);let pageRows:ParsedRow[]=[];
+      if(type==="earnings")continue;
+      const legacyRows=parseFinancialText(embeddedRawText,file.name);
+      if(type==="position"){
+        const positioned=parseFinancialPositionWords(embeddedWords,file.name);
+        pageRows=positioned.rows;
+        // Some readable statements use an institution/account hierarchy and
+        // auxiliary valuation columns. Preserve their existing candidates,
+        // but require explicit review when geometry cannot confirm every leaf.
+        if(legacyRows.length>pageRows.length)pageRows=legacyRows.map(row=>({...row,needsReview:true,manuallyReviewRequired:true,sourceReviewReason:"Review embedded account hierarchy and dated columns"}));
+      }else pageRows=legacyRows;
+      const embeddedPortfolio=parseWoodGundyPortfolioPages([{text:embeddedText,pageNumber:n,confidence:100}],file.name);
+      if(embeddedPortfolio.length)pageRows=embeddedPortfolio;
+      // Extraction paths are exclusive per page. Success on another page must
+      // never suppress OCR here, and retries never append duplicate accounts.
+      if(pageRows.length){rows.push(...pageRows.map(row=>({...row,id:`page-${n}:${row.id}`,sourcePage:n})));continue;}
+      worker??=await createOcrWorker(progress);
+      let best:{score:number;text:string;confidence:number;words:ReturnType<typeof extractWordsWithBoundingBoxes>;canvas:HTMLCanvasElement}|undefined;
+      for(const rotation of rotationCandidates(page.rotate||0)){
+        progress(`OCR page ${n} of ${pdf.numPages} at ${rotation}°…`);const canvas=await renderPage(page,rotation);
+        const result=await worker.recognize(canvas,{}, {text:true,blocks:true});const words=extractWordsWithBoundingBoxes(result.data);const text=result.data.text||"";const confidence=result.data.confidence||0;const score=financialScore(text,confidence);
+        if(!best||score>best.score)best={score,text,confidence,words,canvas};
       }
-    } finally { await worker.terminate(); }
-    const portfolio=parseWoodGundyPortfolioPages(portfolioPages,file.name);if(portfolio.length)return portfolio;
-    if(!rows.length)throw new Error("OCR completed, but no account candidates were found. The statement remains available for manual review.");
+      if(!best||(!best.words.length&&!best.text.trim())){issues.push({page:n,code:"unreadable"});continue;}
+      best.words=await recoverDarkHeadingWords(best.canvas,best.words,async canvas=>{
+        await worker!.setParameters({tessedit_pageseg_mode:"6" as import("tesseract.js").PSM});
+        try{return extractWordsWithBoundingBoxes((await worker!.recognize(canvas,{}, {text:true,blocks:true})).data);}
+        finally{await worker!.setParameters({tessedit_pageseg_mode:"3" as import("tesseract.js").PSM});}
+      });
+      const text=reconstructOcrLines(best.words).map(line=>line.text).join("\n");type=statementType(text);
+      if(type==="earnings"||isEquityOnlyPage(best.words))continue;
+      portfolioPages.push({text,pageNumber:n,confidence:best.confidence});
+      const position=type==="position"?parseFinancialPositionWords(best.words,file.name):null;
+      const parsed=position?{rows:position.rows,periodColumns:undefined}:parseOcrFinancialWords(best.words,file.name);
+      pageRows=parsed.rows;
+      if(parsed.periodColumns){for(const row of pageRows.filter(item=>(item.current===""||item.previous===null)&&item.ocrRowBox)){
+        progress(`Rechecking a financial row on page ${n}…`);
+        const recovered=await recoverMissingPeriodFromCrop(best.canvas,row.ocrRowBox!,{current:row.current===""?null:Number(row.current),previous:row.previous},parsed.periodColumns,async canvas=>extractWordsWithBoundingBoxes((await worker!.recognize(canvas,{}, {text:false,blocks:true})).data));
+        row.current=recovered.current===null?"":Math.abs(recovered.current);row.previous=recovered.previous===null?null:Math.abs(recovered.previous);row.needsReview=row.current===""||row.previous===null||row.needsReview;
+      }}
+      if(!pageRows.length)issues.push({page:n,code:type==="unknown"?"unsupported":"uncertain"});
+      else rows.push(...pageRows.map(row=>({...row,id:`page-${n}:${row.id}`,sourcePage:n})));
+      }catch{issues.push({page:n,code:"unreadable"});}
+    }
+    const portfolio=parseWoodGundyPortfolioPages(portfolioPages,file.name);
+    if(portfolio.length){const portfolioPageNumbers=new Set(portfolio.map(row=>row.sourcePage));rows.push(...portfolio.filter(row=>!rows.some(existing=>existing.sourcePage===row.sourcePage)));for(let index=issues.length-1;index>=0;index--)if(portfolioPageNumbers.has(issues[index].page))issues.splice(index,1);}
+    if(!rows.length)throw new DocumentImportError(issues.some(issue=>issue.code==="uncertain")?"uncertain":issues.some(issue=>issue.code==="unreadable")?"unreadable":"unsupported",issues.length?issues.map(issue=>issue.page):Array.from({length:pdf.numPages},(_,index)=>index+1));
+    if(issues.length)for(const row of rows){row.sourceReviewPages=issues.map(issue=>issue.page);row.sourceReviewReason="Some pages could not be reliably extracted";row.needsReview=true;row.manuallyReviewRequired=true;}
     return rows;
-  } finally { await pdf.destroy(); }
+  } finally {await worker?.terminate();await pdf.destroy();}
 }
 export type StatementFileType="pdf"|"image"|"spreadsheet"|"csv";
 const supportedExtensions={pdf:"pdf",jpg:"image",jpeg:"image",png:"image",csv:"csv",xls:"spreadsheet",xlsx:"spreadsheet"} as const;

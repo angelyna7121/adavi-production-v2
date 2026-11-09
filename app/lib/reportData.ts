@@ -2,7 +2,7 @@ import { statementPresentation } from "./statementPresentation";
 import type { Kind, ParsedRow } from "./documentParser";
 import { calculateStatementTotals, reconcileCategory, type FinancialRow } from "./reconciliation";
 
-export type StatementRecord = { statementId:string; investorId:string; filename:string; ownershipPercentage:number; parseStatus:"processing"|"ready"|"error"; objectUrl?:string };
+export type StatementRecord = { statementId:string; investorId:string; filename:string; ownershipPercentage:number; parseStatus:"processing"|"ready"|"error"; objectUrl?:string; reviewMessage?:string };
 export const CSV_HEADERS = ["Investor", "Statement", "Ownership Percentage", "Raw Current Value", "Included Current Value", "Raw Previous Value", "Included Previous Value", "Type", "Category", "Institution / Account", "Description"] as const;
 export function validateOwnershipPercentage(value:number){if(!Number.isFinite(value)||value<0||value>100)throw new Error("Ownership percentage must be between 0 and 100.");return value;}
 export function effectiveOwnershipPercentage(row:ParsedRow){return validateOwnershipPercentage(row.rowOwnershipOverride??row.ownershipPercentage??100);}
@@ -19,6 +19,20 @@ export function hasUnnamedIncludedRows(rows: ParsedRow[]) { return rows.some((ro
 export function isSummaryRow(row: ParsedRow) { return /^\s*(?:grand\s+total|sub\s*total|subtotal|total)(?:\s|:|-|$)/i.test(row.description); }
 /** The public report model contains confirmed numeric leaf accounts only; source totals are never public rows. */
 export function confirmedDetailRows(rows: ParsedRow[]) { return rows.filter((row)=>row.include&&row.current!==""&&row.isSourceTotal!==true&&row.isLeafAccount!==false&&!isSummaryRow(row)); }
+/** Compare original statement controls before ownership, without synthesizing
+ * accounts. Missing prior values remain unknown rather than becoming zeros. */
+export function sourcePositionNeedsReview(rows:ParsedRow[],tolerance=1):boolean {
+  const groups=new Map<string,ParsedRow[]>();
+  for(const row of rows){const key=row.statementId??row.sourceFileId??row.source;groups.set(key,[...(groups.get(key)??[]),row]);}
+  for(const group of groups.values())for(const period of ["current","previous"] as const)for(const kind of ["Asset","Liability"] as const){
+    const key=kind==="Asset"?(period==="current"?"sourceAssetTotalCurrent":"sourceAssetTotalPrevious"):(period==="current"?"sourceLiabilityTotalCurrent":"sourceLiabilityTotalPrevious");
+    const control=group.find(row=>row[key]!=null)?.[key];if(control==null)continue;
+    const leaves=confirmedDetailRows(group).filter(row=>row.kind===kind);
+    const values=leaves.map(row=>period==="current"?(row.rawCurrent??row.current):(row.rawPrevious!==undefined?row.rawPrevious:row.previous));
+    if(values.some(value=>value===""||value===null)||Math.abs(values.reduce<number>((sum,value)=>sum+Number(value),0)-control)>tolerance)return true;
+  }
+  return false;
+}
 export function calculateReconciliation(rows: ParsedRow[]) {
   const totals=calculatePeriodTotals(rows,"current");return {calculated:totals.netWorth,source:totals.source,difference:totals.source===null?null:totals.netWorth-totals.source,matches:totals.source===null?null:Math.abs(totals.netWorth-totals.source)<=1};
 }
@@ -47,10 +61,10 @@ export function calculateAssetMix(rows: ParsedRow[]): AssetMixEntry[] {
     .sort((left, right) => right.total - left.total || left.category.localeCompare(right.category));
 }
 
-export type InvestorStatementAccount = { id:string; name:string; holder:string; ownership:number; currentFull:number; currentShare:number; previousFull:number; previousShare:number };
-export type InvestorStatementCategory = { category:string; accounts:InvestorStatementAccount[]; currentFull:number; currentShare:number; previousFull:number; previousShare:number };
-export type InvestorStatementSection = { kind:Kind; categories:InvestorStatementCategory[]; currentFull:number; currentShare:number; previousFull:number; previousShare:number };
-export type InvestorStatement = { sections:InvestorStatementSection[]; currentFullAssets:number; currentShareAssets:number; previousFullAssets:number; previousShareAssets:number; currentFullLiabilities:number; currentShareLiabilities:number; previousFullLiabilities:number; previousShareLiabilities:number; currentFullNetWorth:number; currentShareNetWorth:number; previousFullNetWorth:number; previousShareNetWorth:number };
+export type InvestorStatementAccount = { id:string; name:string; holder:string; ownership:number; currentFull:number; currentShare:number; previousFull:number; previousShare:number; previousMissing?:boolean };
+export type InvestorStatementCategory = { category:string; accounts:InvestorStatementAccount[]; currentFull:number; currentShare:number; previousFull:number; previousShare:number; previousMissing?:boolean };
+export type InvestorStatementSection = { kind:Kind; categories:InvestorStatementCategory[]; currentFull:number; currentShare:number; previousFull:number; previousShare:number; previousMissing?:boolean };
+export type InvestorStatement = { previousMissing?:boolean; sections:InvestorStatementSection[]; currentFullAssets:number; currentShareAssets:number; previousFullAssets:number; previousShareAssets:number; currentFullLiabilities:number; currentShareLiabilities:number; previousFullLiabilities:number; previousShareLiabilities:number; currentFullNetWorth:number; currentShareNetWorth:number; previousFullNetWorth:number; previousShareNetWorth:number };
 
 /** Raw balances are authoritative. Legacy rows without raw balances use the safest reversible fallback. */
 function fullValue(row:ParsedRow,period:"current"|"previous"){
@@ -67,13 +81,13 @@ export function buildInvestorStatement(rows:ParsedRow[]):InvestorStatement {
   const sections=(["Asset","Liability"] as Kind[]).map((kind)=>{
     const kindRows=leaves.filter((row)=>row.kind===kind);
     const categories=[...new Set(kindRows.map((row)=>normalizeCategory(row.category)))].map((category)=>{
-      const accounts=kindRows.filter((row)=>normalizeCategory(row.category)===category).map((row)=>{const ownership=effectiveOwnershipPercentage(row);const sign=kind==="Liability"?Math.abs:(value:number)=>value;return {id:row.id,name:row.description,holder:row.holder||row.institution,ownership,currentFull:sign(fullValue(row,"current")),currentShare:sign(Number(row.current)),previousFull:sign(fullValue(row,"previous")),previousShare:sign(row.previous??0)};});
-      return {category,accounts,currentFull:accounts.reduce((sum,row)=>sum+row.currentFull,0),currentShare:accounts.reduce((sum,row)=>sum+row.currentShare,0),previousFull:accounts.reduce((sum,row)=>sum+row.previousFull,0),previousShare:accounts.reduce((sum,row)=>sum+row.previousShare,0)};
+      const accounts=kindRows.filter((row)=>normalizeCategory(row.category)===category).map((row)=>{const ownership=effectiveOwnershipPercentage(row);const sign=kind==="Liability"?Math.abs:(value:number)=>value;return {id:row.id,name:row.description,holder:row.holder||row.institution,ownership,currentFull:sign(fullValue(row,"current")),currentShare:sign(Number(row.current)),previousFull:sign(fullValue(row,"previous")),previousShare:sign(row.previous??0),previousMissing:row.previous===null||row.rawPrevious===null};});
+      return {category,accounts,previousMissing:accounts.some(account=>account.previousMissing),currentFull:accounts.reduce((sum,row)=>sum+row.currentFull,0),currentShare:accounts.reduce((sum,row)=>sum+row.currentShare,0),previousFull:accounts.reduce((sum,row)=>sum+row.previousFull,0),previousShare:accounts.reduce((sum,row)=>sum+row.previousShare,0)};
     });
-    return {kind,categories,currentFull:statementTotal(categories,"currentFull"),currentShare:statementTotal(categories,"currentShare"),previousFull:statementTotal(categories,"previousFull"),previousShare:statementTotal(categories,"previousShare")};
+    return {kind,categories,previousMissing:categories.some(category=>category.previousMissing),currentFull:statementTotal(categories,"currentFull"),currentShare:statementTotal(categories,"currentShare"),previousFull:statementTotal(categories,"previousFull"),previousShare:statementTotal(categories,"previousShare")};
   });
   const assets=sections[0],liabilities=sections[1];
-  return {sections,currentFullAssets:assets.currentFull,currentShareAssets:assets.currentShare,previousFullAssets:assets.previousFull,previousShareAssets:assets.previousShare,currentFullLiabilities:liabilities.currentFull,currentShareLiabilities:liabilities.currentShare,previousFullLiabilities:liabilities.previousFull,previousShareLiabilities:liabilities.previousShare,currentFullNetWorth:assets.currentFull-liabilities.currentFull,currentShareNetWorth:assets.currentShare-liabilities.currentShare,previousFullNetWorth:assets.previousFull-liabilities.previousFull,previousShareNetWorth:assets.previousShare-liabilities.previousShare};
+  return {sections,previousMissing:sections.some(section=>section.previousMissing),currentFullAssets:assets.currentFull,currentShareAssets:assets.currentShare,previousFullAssets:assets.previousFull,previousShareAssets:assets.previousShare,currentFullLiabilities:liabilities.currentFull,currentShareLiabilities:liabilities.currentShare,previousFullLiabilities:liabilities.previousFull,previousShareLiabilities:liabilities.previousShare,currentFullNetWorth:assets.currentFull-liabilities.currentFull,currentShareNetWorth:assets.currentShare-liabilities.currentShare,previousFullNetWorth:assets.previousFull-liabilities.previousFull,previousShareNetWorth:assets.previousShare-liabilities.previousShare};
 }
 
 export type ReportInvestor = { investorId:string; name:string };
@@ -121,14 +135,14 @@ export function deriveSelectedInvestorReport(rows:ParsedRow[],investors:ReportIn
   return {investorIds:selectedInvestors.map((investor)=>investor.investorId),investorNames,title:selectedReportTitle(investorNames),hasSelection:selectedInvestors.length>0,rows:selectedRows,statement,assetMix:calculateAssetMix(selectedRows),current,previous,changeInNetWorth:statement.currentShareNetWorth-statement.previousShareNetWorth};
 }
 
-export type InvestorStatementPrintRow = { key:string; level:"section"|"category"|"account"|"subtotal"|"sectionTotal"|"netWorth"; label:string; holder?:string; ownership?:number; currentFull?:number; currentShare?:number; previousFull?:number; previousShare?:number };
+export type InvestorStatementPrintRow = { key:string; level:"section"|"category"|"account"|"subtotal"|"sectionTotal"|"netWorth"; label:string; holder?:string; ownership?:number; currentFull?:number; currentShare?:number; previousFull?:number; previousShare?:number; previousMissing?:boolean };
 export function paginateInvestorStatement(statement:InvestorStatement,capacity=18):InvestorStatementPrintRow[][] {
   const pages:InvestorStatementPrintRow[][]=[];let page:InvestorStatementPrintRow[]=[];let sequence=0;
   const flush=()=>{if(page.some((row)=>row.level==="account"))pages.push(page);page=[];};
   const add=(row:Omit<InvestorStatementPrintRow,"key">,reserve=0)=>{if(page.length&&page.length+1+reserve>capacity)flush();page.push({...row,key:`investor-statement-${sequence++}`});};
   const append=(row:Omit<InvestorStatementPrintRow,"key">)=>page.push({...row,key:`investor-statement-${sequence++}`});
-  for(const section of statement.sections){if(!section.categories.some((category)=>category.accounts.length))continue;add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},2);for(const category of section.categories){if(!category.accounts.length)continue;add({level:"category",label:category.category},1);for(const [index,account] of category.accounts.entries())add({level:"account",label:account.name,holder:account.holder,ownership:account.ownership,currentFull:account.currentFull,currentShare:account.currentShare,previousFull:account.previousFull,previousShare:account.previousShare},index===category.accounts.length-1?1:0);add({level:"subtotal",label:`Total ${category.category}`,currentFull:category.currentFull,currentShare:category.currentShare,previousFull:category.previousFull,previousShare:category.previousShare});}append({level:"sectionTotal",label:`Total ${section.kind === "Asset"?"Assets":"Liabilities"}`,currentFull:section.currentFull,currentShare:section.currentShare,previousFull:section.previousFull,previousShare:section.previousShare});}
-  append({level:"netWorth",label:"Net Worth",currentFull:statement.currentFullNetWorth,currentShare:statement.currentShareNetWorth,previousFull:statement.previousFullNetWorth,previousShare:statement.previousShareNetWorth});flush();return pages;
+  for(const section of statement.sections){if(!section.categories.some((category)=>category.accounts.length))continue;add({level:"section",label:section.kind==="Asset"?"Assets":"Liabilities"},2);for(const category of section.categories){if(!category.accounts.length)continue;add({level:"category",label:category.category},1);for(const [index,account] of category.accounts.entries())add({level:"account",label:account.name,holder:account.holder,ownership:account.ownership,currentFull:account.currentFull,currentShare:account.currentShare,previousFull:account.previousFull,previousShare:account.previousShare,previousMissing:account.previousMissing},index===category.accounts.length-1?1:0);add({level:"subtotal",label:`Total ${category.category}`,currentFull:category.currentFull,currentShare:category.currentShare,previousFull:category.previousFull,previousShare:category.previousShare,previousMissing:category.previousMissing});}append({level:"sectionTotal",label:`Total ${section.kind === "Asset"?"Assets":"Liabilities"}`,currentFull:section.currentFull,currentShare:section.currentShare,previousFull:section.previousFull,previousShare:section.previousShare,previousMissing:section.previousMissing});}
+  append({level:"netWorth",label:"Net Worth",currentFull:statement.currentFullNetWorth,currentShare:statement.currentShareNetWorth,previousFull:statement.previousFullNetWorth,previousShare:statement.previousShareNetWorth,previousMissing:statement.previousMissing});flush();return pages;
 }
 export type ReportGroup = { investor:string; sections:Array<{kind:Kind;categories:Array<{category:string;total:number;previousTotal:number;holders:Array<{holder:string;total:number;previousTotal:number;rows:ParsedRow[]}>}>}> };
 export function groupReportRows(rows: ParsedRow[]): ReportGroup[] {

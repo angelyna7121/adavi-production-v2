@@ -1,0 +1,2 @@
+# Generated synthetic PDF fixtures must retain their exact byte offsets.
+tests/fixtures/pdf/*.pdf binary
