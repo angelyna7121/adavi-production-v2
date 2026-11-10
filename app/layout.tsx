@@ -1,9 +1,12 @@
+import { backendConfigured } from "./lib/backend/db";
+import { ClerkProvider } from "@clerk/nextjs";
 import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Adavi | Net Worth Statement",
-  description: "Create a consolidated net worth statement privately in your browser.",
+  description:
+    "Create a consolidated net worth statement privately in your browser.",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",
@@ -17,7 +20,15 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        {backendConfigured() ? (
+          <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
+            {children}
+          </ClerkProvider>
+        ) : (
+          children
+        )}
+      </body>
     </html>
   );
 }

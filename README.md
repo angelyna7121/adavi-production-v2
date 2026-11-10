@@ -1,6 +1,6 @@
 # Adavi Net Worth
 
-A production-ready native Next.js application for the adavi.ai Net Worth Statement workflow with local document parsing.
+A native Next.js application for the adavi.ai Net Worth Statement workflow with local document parsing.
 
 ## Included workflow
 
@@ -51,6 +51,18 @@ npm run build
 
 ## Scope
 
-This is a self-contained front end. PDF text extraction, PDF page rendering, OCR and spreadsheet parsing occur locally in the browser; statement files are not sent to a server. Authentication, database persistence, payments and production integrations remain outside this application.
+PDF text extraction, PDF page rendering, OCR and spreadsheet parsing occur locally in the browser; statement files are not sent to a server. The optional authenticated backend persists only explicitly saved anonymous category summaries. External integrations remain disabled until configured and verified.
 
 The parser accepts up to 10 MB per file and reads up to 25 PDF pages. OCR, PDF.js and English language assets are bundled locally, so the application does not download OCR dependencies from a CDN at runtime.
+
+## Subscription security dependency
+
+The existing upgrade panel and advertised prices remain unchanged. Paid capabilities now use Clerk-backed persisted entitlements and verified Stripe webhooks, and remain locked when the backend is unavailable. Configure approved Stripe Prices to match the approved offer before enabling Checkout. Browser state, local storage, query parameters, and CSS are not accepted as backend entitlement evidence.
+
+Free users can create, reconcile, view, print, and save the fully detailed report as PDF. Free printed reports retain the repeating adavi.ai watermark, “Prepared by adavi.ai,” and the educational disclaimer.
+
+## Authenticated backend and financial insights
+
+The optional backend uses Clerk, Neon PostgreSQL with Drizzle, Stripe and a server-only OpenAI adapter. Analysis defaults to disabled until configuration and privacy approvals are complete. Local document parsing and report creation work without those services. See [backend setup and preview verification](docs/backend-setup.md) and [analysis data flow](docs/financial-insights.md).
+
+Schema migrations are in `drizzle/`. Run `npm run db:migrate` only against an explicitly approved development/preview database. `npm test` includes database integration tests when `RUN_DATABASE_TESTS=1` and an isolated development/preview `DATABASE_URL` are configured; otherwise those tests are reported as skipped. Never use a production database for tests.
